@@ -98,6 +98,7 @@ export default function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [profilePanel, setProfilePanel] = useState<'main' | 'notifications' | 'install'>('main');
 
   // Comments State
   const [comments, setComments] = useState<Comment[]>([]);
@@ -405,13 +406,6 @@ export default function App() {
         { id: 'ai_blocker', label: t('nav.item.blockedAlert'), icon: <ShieldAlert className="w-[18px] h-[18px]" /> },
       ]
     },
-    {
-      title: t('nav.settings'),
-      items: [
-        { id: 'notifications', label: t('nav.item.notifications'), icon: <Bell className="w-[18px] h-[18px]" /> },
-        { id: 'install_app', label: t('nav.item.installApp'), icon: <Download className="w-[18px] h-[18px]" /> },
-      ]
-    }
   ];
 
   const activeMenu = menuCategories.flatMap(c => c.items).find(i => i.id === activeTab);
@@ -851,108 +845,221 @@ export default function App() {
             {/* Profile Settings Popup */}
             {showProfileMenu && (
               <>
-                <div className="fixed inset-0 z-30" onClick={() => setShowProfileMenu(false)} />
-                <div className="absolute bottom-full left-0 right-0 mb-2 bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden z-40 animate-[fadeIn_0.15s_ease-out_forwards]">
-                  {/* Header */}
-                  <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">
-                    <div className="flex items-center gap-3">
-                      <img src={user.photoURL || `https://ui-avatars.com/api/?name=${user.displayName}`} alt="Profile" className="w-10 h-10 rounded-full ring-2 ring-white shadow-sm" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-bold text-slate-800 truncate">{user.displayName}</p>
-                        <p className="text-[11px] text-slate-500 truncate">{user.email}</p>
+                <div className="fixed inset-0 z-30" onClick={() => { setShowProfileMenu(false); setProfilePanel('main'); }} />
+                <div className="absolute bottom-full left-0 right-0 mb-2 bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden z-40 animate-[fadeIn_0.15s_ease-out_forwards] max-h-[70vh] overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:bg-slate-200 [&::-webkit-scrollbar-thumb]:rounded-full">
+
+                  {/* === MAIN Panel === */}
+                  {profilePanel === 'main' && (
+                    <div>
+                      {/* Header */}
+                      <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">
+                        <div className="flex items-center gap-3">
+                          <img src={user.photoURL || `https://ui-avatars.com/api/?name=${user.displayName}`} alt="Profile" className="w-10 h-10 rounded-full ring-2 ring-white shadow-sm" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-bold text-slate-800 truncate">{user.displayName}</p>
+                            <p className="text-[11px] text-slate-500 truncate">{user.email}</p>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="py-1.5">
+                        {/* Notification Settings - opens sub panel */}
+                        <button
+                          onClick={() => setProfilePanel('notifications')}
+                          className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-slate-50 transition-colors"
+                        >
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${notifSettings.enabled ? 'bg-indigo-100' : 'bg-slate-100'}`}>
+                            {notifSettings.enabled ? <Bell className="w-4 h-4 text-indigo-600" /> : <BellOff className="w-4 h-4 text-slate-400" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[13px] font-semibold text-slate-800">{t('nav.item.notifications')}</p>
+                            <p className="text-[11px] text-slate-500">{notifSettings.enabled ? (language === 'ko' ? '활성화됨' : 'Enabled') : (language === 'ko' ? '비활성화됨' : 'Disabled')}</p>
+                          </div>
+                          <ChevronRight className="w-4 h-4 text-slate-400" />
+                        </button>
+
+                        {/* Install App - opens sub panel */}
+                        <button
+                          onClick={() => setProfilePanel('install')}
+                          className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-slate-50 transition-colors"
+                        >
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isAppInstalled ? 'bg-emerald-100' : 'bg-purple-100'}`}>
+                            {isAppInstalled ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <Download className="w-4 h-4 text-purple-600" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[13px] font-semibold text-slate-800">{t('nav.item.installApp')}</p>
+                            <p className="text-[11px] text-slate-500">
+                              {isAppInstalled ? (language === 'ko' ? '설치 완료' : 'Installed') :
+                               deferredPrompt ? (language === 'ko' ? '설치 가능' : 'Ready to install') :
+                               (language === 'ko' ? '설치 방법 보기' : 'View install guide')}
+                            </p>
+                          </div>
+                          <ChevronRight className="w-4 h-4 text-slate-400" />
+                        </button>
+
+                        <div className="my-1.5 mx-3 border-t border-slate-100" />
+
+                        {/* Logout */}
+                        <button
+                          onClick={() => { handleLogout(); setShowProfileMenu(false); setProfilePanel('main'); }}
+                          className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-red-50 transition-colors group"
+                        >
+                          <div className="w-8 h-8 rounded-lg bg-slate-100 group-hover:bg-red-100 flex items-center justify-center transition-colors">
+                            <LogOut className="w-4 h-4 text-slate-500 group-hover:text-red-500 transition-colors" />
+                          </div>
+                          <p className="text-[13px] font-semibold text-slate-700 group-hover:text-red-600 transition-colors">{t('auth.logout')}</p>
+                        </button>
                       </div>
                     </div>
-                  </div>
+                  )}
 
-                  {/* Menu Items */}
-                  <div className="py-1.5">
-                    {/* Notification Settings */}
-                    <button
-                      onClick={() => { setActiveTab('notifications'); setShowProfileMenu(false); }}
-                      className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-slate-50 transition-colors"
-                    >
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${notifSettings.enabled ? 'bg-indigo-100' : 'bg-slate-100'}`}>
-                        {notifSettings.enabled ? <Bell className="w-4 h-4 text-indigo-600" /> : <BellOff className="w-4 h-4 text-slate-400" />}
+                  {/* === NOTIFICATIONS Panel === */}
+                  {profilePanel === 'notifications' && (
+                    <div>
+                      {/* Back Header */}
+                      <div className="px-3 py-2.5 border-b border-slate-100 bg-slate-50/50 flex items-center gap-2">
+                        <button onClick={() => setProfilePanel('main')} className="p-1 rounded-md hover:bg-slate-200 transition-colors">
+                          <ChevronLeft className="w-4 h-4 text-slate-600" />
+                        </button>
+                        <BellRing className="w-4 h-4 text-indigo-600" />
+                        <span className="text-sm font-bold text-slate-800">{t('nav.item.notifications')}</span>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[13px] font-semibold text-slate-800">{t('nav.item.notifications')}</p>
-                        <p className="text-[11px] text-slate-500">{notifSettings.enabled ? (language === 'ko' ? '활성화됨' : 'Enabled') : (language === 'ko' ? '비활성화됨' : 'Disabled')}</p>
-                      </div>
-                      <div className={`w-2 h-2 rounded-full ${notifSettings.enabled ? 'bg-emerald-400' : 'bg-slate-300'}`} />
-                    </button>
 
-                    {/* Notification Permission */}
-                    <button
-                      onClick={async () => {
-                        if (notifPermission === 'default') {
-                          const p = await requestPermission();
-                          setNotifPermission(p);
-                        } else {
-                          setActiveTab('notifications');
-                          setShowProfileMenu(false);
-                        }
-                      }}
-                      className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-slate-50 transition-colors"
-                    >
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                        notifPermission === 'granted' ? 'bg-emerald-100' : notifPermission === 'denied' ? 'bg-red-100' : 'bg-amber-100'
-                      }`}>
-                        {notifPermission === 'granted' ? <BellRing className="w-4 h-4 text-emerald-600" /> :
-                         notifPermission === 'denied' ? <BellOff className="w-4 h-4 text-red-500" /> :
-                         <Bell className="w-4 h-4 text-amber-600" />}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[13px] font-semibold text-slate-800">{language === 'ko' ? '알림 권한' : 'Notification Permission'}</p>
-                        <p className="text-[11px] text-slate-500">
-                          {notifPermission === 'granted' ? (language === 'ko' ? '허용됨' : 'Granted') :
-                           notifPermission === 'denied' ? (language === 'ko' ? '차단됨' : 'Blocked') :
-                           (language === 'ko' ? '권한 요청 필요' : 'Permission required')}
-                        </p>
-                      </div>
-                      <div className={`w-2 h-2 rounded-full ${
-                        notifPermission === 'granted' ? 'bg-emerald-400' : notifPermission === 'denied' ? 'bg-red-400' : 'bg-amber-400'
-                      }`} />
-                    </button>
+                      <div className="p-3">
+                        {/* Permission Banner */}
+                        {notifPermission !== 'granted' && (
+                          <div className={`mb-3 p-2.5 rounded-lg text-[12px] font-medium flex items-center gap-2 ${
+                            notifPermission === 'denied' ? 'bg-red-50 text-red-700 border border-red-100' : 'bg-amber-50 text-amber-700 border border-amber-100'
+                          }`}>
+                            {notifPermission === 'denied' ? <BellOff className="w-3.5 h-3.5 shrink-0" /> : <Bell className="w-3.5 h-3.5 shrink-0" />}
+                            <span className="flex-1">{notifPermission === 'denied' ? t('notif.permissionDenied') : t('notif.permissionDefault')}</span>
+                            {notifPermission === 'default' && (
+                              <button
+                                onClick={async () => { const p = await requestPermission(); setNotifPermission(p); }}
+                                className="shrink-0 px-2.5 py-1 bg-indigo-600 text-white text-[11px] font-bold rounded-md hover:bg-indigo-700"
+                              >
+                                {t('notif.requestPermission')}
+                              </button>
+                            )}
+                          </div>
+                        )}
 
-                    {/* Install App */}
-                    <button
-                      onClick={() => {
-                        if (deferredPrompt) {
-                          handleInstallApp();
-                        } else {
-                          setActiveTab('install_app');
-                        }
-                        setShowProfileMenu(false);
-                      }}
-                      className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-slate-50 transition-colors"
-                    >
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isAppInstalled ? 'bg-emerald-100' : 'bg-purple-100'}`}>
-                        {isAppInstalled ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <Download className="w-4 h-4 text-purple-600" />}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[13px] font-semibold text-slate-800">{t('nav.item.installApp')}</p>
-                        <p className="text-[11px] text-slate-500">
-                          {isAppInstalled ? (language === 'ko' ? '설치 완료' : 'Installed') :
-                           deferredPrompt ? (language === 'ko' ? '설치 가능' : 'Ready to install') :
-                           (language === 'ko' ? '설치 가이드 보기' : 'View install guide')}
-                        </p>
-                      </div>
-                      {isAppInstalled && <div className="w-2 h-2 rounded-full bg-emerald-400" />}
-                    </button>
+                        {/* Master Toggle */}
+                        <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-lg border border-slate-100 mb-3">
+                          <div>
+                            <p className="text-[13px] font-bold text-slate-800">{t('notif.masterToggle')}</p>
+                            <p className="text-[11px] text-slate-500">{t('notif.masterToggleDesc')}</p>
+                          </div>
+                          <button onClick={() => handleToggleNotifications(!notifSettings.enabled)}>
+                            {notifSettings.enabled ? <ToggleRight className="w-10 h-10 text-indigo-600" /> : <ToggleLeft className="w-10 h-10 text-slate-400" />}
+                          </button>
+                        </div>
 
-                    <div className="my-1.5 mx-3 border-t border-slate-100" />
+                        {/* Category Toggles */}
+                        <div className="space-y-0.5">
+                          {([
+                            { key: 'taskCreated', label: t('notif.taskCreated'), icon: <Plus className="w-3.5 h-3.5" /> },
+                            { key: 'taskUpdated', label: t('notif.taskUpdated'), icon: <Edit3 className="w-3.5 h-3.5" /> },
+                            { key: 'taskBlocked', label: t('notif.taskBlocked'), icon: <AlertOctagon className="w-3.5 h-3.5" /> },
+                            { key: 'taskCompleted', label: t('notif.taskCompleted'), icon: <CheckCircle2 className="w-3.5 h-3.5" /> },
+                            { key: 'dueDateReminder', label: t('notif.dueDateReminder'), icon: <Clock className="w-3.5 h-3.5" /> },
+                            { key: 'commentAdded', label: t('notif.commentAdded'), icon: <MessageSquare className="w-3.5 h-3.5" /> },
+                            { key: 'feedbackRequest', label: t('notif.feedbackRequest'), icon: <Eye className="w-3.5 h-3.5" /> },
+                          ] as { key: keyof NotificationSettings; label: string; icon: React.ReactNode }[]).map(item => (
+                            <div key={item.key} className={`flex items-center justify-between py-2 px-2.5 rounded-lg ${notifSettings.enabled ? 'hover:bg-slate-50' : 'opacity-40'}`}>
+                              <div className="flex items-center gap-2.5">
+                                <div className={`w-6 h-6 rounded-md flex items-center justify-center ${notifSettings[item.key] && notifSettings.enabled ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-400'}`}>
+                                  {item.icon}
+                                </div>
+                                <span className="text-[12px] font-semibold text-slate-700">{item.label}</span>
+                              </div>
+                              <button
+                                disabled={!notifSettings.enabled}
+                                onClick={() => handleNotifSettingChange(item.key, !notifSettings[item.key])}
+                              >
+                                {notifSettings[item.key] ? <ToggleRight className={`w-8 h-8 ${notifSettings.enabled ? 'text-indigo-600' : 'text-slate-300'}`} /> : <ToggleLeft className="w-8 h-8 text-slate-300" />}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
 
-                    {/* Logout */}
-                    <button
-                      onClick={() => { handleLogout(); setShowProfileMenu(false); }}
-                      className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-red-50 transition-colors group"
-                    >
-                      <div className="w-8 h-8 rounded-lg bg-slate-100 group-hover:bg-red-100 flex items-center justify-center transition-colors">
-                        <LogOut className="w-4 h-4 text-slate-500 group-hover:text-red-500 transition-colors" />
+                        {/* Test Button */}
+                        {notifSettings.enabled && notifPermission === 'granted' && (
+                          <button
+                            onClick={handleTestNotification}
+                            className="mt-3 w-full py-2 bg-indigo-50 text-indigo-700 text-[12px] font-bold rounded-lg hover:bg-indigo-100 transition-colors flex items-center justify-center gap-2 border border-indigo-100"
+                          >
+                            <BellRing className="w-3.5 h-3.5" />
+                            {notifTestSent ? t('notif.testSent') : t('notif.testBtn')}
+                          </button>
+                        )}
                       </div>
-                      <p className="text-[13px] font-semibold text-slate-700 group-hover:text-red-600 transition-colors">{t('auth.logout')}</p>
-                    </button>
-                  </div>
+                    </div>
+                  )}
+
+                  {/* === INSTALL Panel === */}
+                  {profilePanel === 'install' && (
+                    <div>
+                      {/* Back Header */}
+                      <div className="px-3 py-2.5 border-b border-slate-100 bg-slate-50/50 flex items-center gap-2">
+                        <button onClick={() => setProfilePanel('main')} className="p-1 rounded-md hover:bg-slate-200 transition-colors">
+                          <ChevronLeft className="w-4 h-4 text-slate-600" />
+                        </button>
+                        <Download className="w-4 h-4 text-purple-600" />
+                        <span className="text-sm font-bold text-slate-800">{t('nav.item.installApp')}</span>
+                      </div>
+
+                      <div className="p-3">
+                        {isAppInstalled ? (
+                          <div className="flex items-center gap-2.5 p-3 bg-emerald-50 rounded-lg border border-emerald-100">
+                            <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                            <span className="text-[13px] font-bold text-emerald-700">{t('install.installed')}</span>
+                          </div>
+                        ) : deferredPrompt ? (
+                          <button
+                            onClick={handleInstallApp}
+                            className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors shadow-md flex items-center justify-center gap-2 text-sm"
+                          >
+                            <Download className="w-4 h-4" />
+                            {t('install.btn')}
+                          </button>
+                        ) : (
+                          <div>
+                            <p className="text-[12px] font-medium text-slate-600 mb-3">{t('install.howTo')}</p>
+                            <div className="space-y-2">
+                              <div className="flex items-start gap-2.5 p-2.5 bg-slate-50 rounded-lg border border-slate-100">
+                                <Monitor className="w-4 h-4 text-slate-500 mt-0.5 shrink-0" />
+                                <span className="text-[11px] text-slate-700 font-medium leading-relaxed">{t('install.step1.chrome')}</span>
+                              </div>
+                              <div className="flex items-start gap-2.5 p-2.5 bg-slate-50 rounded-lg border border-slate-100">
+                                <Smartphone className="w-4 h-4 text-slate-500 mt-0.5 shrink-0" />
+                                <span className="text-[11px] text-slate-700 font-medium leading-relaxed">{t('install.step1.safari')}</span>
+                              </div>
+                              <div className="flex items-start gap-2.5 p-2.5 bg-slate-50 rounded-lg border border-slate-100">
+                                <Monitor className="w-4 h-4 text-slate-500 mt-0.5 shrink-0" />
+                                <span className="text-[11px] text-slate-700 font-medium leading-relaxed">{t('install.step1.edge')}</span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Benefits */}
+                        <div className="mt-3 space-y-1.5">
+                          {[
+                            { icon: <Smartphone className="w-3.5 h-3.5 text-indigo-500" />, text: t('install.benefit1') },
+                            { icon: <Monitor className="w-3.5 h-3.5 text-purple-500" />, text: t('install.benefit2') },
+                            { icon: <BellRing className="w-3.5 h-3.5 text-emerald-500" />, text: t('install.benefit3') },
+                            { icon: <Wifi className="w-3.5 h-3.5 text-amber-500" />, text: t('install.benefit4') },
+                          ].map((b, idx) => (
+                            <div key={idx} className="flex items-center gap-2 px-2.5 py-1.5">
+                              {b.icon}
+                              <span className="text-[11px] font-medium text-slate-600">{b.text}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                 </div>
               </>
             )}
@@ -2060,204 +2167,8 @@ export default function App() {
             </div>
           )}
 
-          {/* Notification Settings */}
-          {activeTab === 'notifications' && (
-            <div className="max-w-4xl mx-auto pb-20 mt-6 animate-[fadeIn_0.5s_ease-out_forwards]">
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="p-8 md:p-12">
-                  <div className="flex items-center gap-3 mb-2">
-                    <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center">
-                      <BellRing className="w-5 h-5 text-indigo-600" />
-                    </div>
-                    <div>
-                      <h1 className="text-2xl font-extrabold text-slate-900">{t('notif.title')}</h1>
-                      <p className="text-sm text-slate-500 font-medium">{t('notif.desc')}</p>
-                    </div>
-                  </div>
-
-                  {/* Permission Status */}
-                  <div className={`mt-6 p-4 rounded-xl border flex items-center gap-3 ${
-                    notifPermission === 'granted' ? 'bg-emerald-50 border-emerald-200' :
-                    notifPermission === 'denied' ? 'bg-red-50 border-red-200' :
-                    'bg-amber-50 border-amber-200'
-                  }`}>
-                    {notifPermission === 'granted' ? <Bell className="w-5 h-5 text-emerald-600" /> :
-                     notifPermission === 'denied' ? <BellOff className="w-5 h-5 text-red-600" /> :
-                     <Bell className="w-5 h-5 text-amber-600" />}
-                    <span className={`text-sm font-medium ${
-                      notifPermission === 'granted' ? 'text-emerald-700' :
-                      notifPermission === 'denied' ? 'text-red-700' : 'text-amber-700'
-                    }`}>
-                      {notifPermission === 'granted' ? t('notif.permissionGranted') :
-                       notifPermission === 'denied' ? t('notif.permissionDenied') :
-                       notifPermission === 'unsupported' ? t('notif.unsupported') :
-                       t('notif.permissionDefault')}
-                    </span>
-                    {notifPermission === 'default' && (
-                      <button
-                        onClick={async () => {
-                          const p = await requestPermission();
-                          setNotifPermission(p);
-                        }}
-                        className="ml-auto px-4 py-1.5 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
-                      >
-                        {t('notif.requestPermission')}
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Master Toggle */}
-                  <div className="mt-8 flex items-center justify-between p-5 bg-slate-50 rounded-xl border border-slate-200">
-                    <div>
-                      <h3 className="font-bold text-slate-800">{t('notif.masterToggle')}</h3>
-                      <p className="text-sm text-slate-500">{t('notif.masterToggleDesc')}</p>
-                    </div>
-                    <button
-                      onClick={() => handleToggleNotifications(!notifSettings.enabled)}
-                      className="flex items-center"
-                    >
-                      {notifSettings.enabled ? (
-                        <ToggleRight className="w-12 h-12 text-indigo-600" />
-                      ) : (
-                        <ToggleLeft className="w-12 h-12 text-slate-400" />
-                      )}
-                    </button>
-                  </div>
-
-                  {/* Category Toggles */}
-                  <div className="mt-8">
-                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">{t('notif.categories')}</h3>
-                    <div className="space-y-1">
-                      {([
-                        { key: 'taskCreated', label: t('notif.taskCreated'), desc: t('notif.taskCreatedDesc'), icon: <Plus className="w-4 h-4" /> },
-                        { key: 'taskUpdated', label: t('notif.taskUpdated'), desc: t('notif.taskUpdatedDesc'), icon: <Edit3 className="w-4 h-4" /> },
-                        { key: 'taskBlocked', label: t('notif.taskBlocked'), desc: t('notif.taskBlockedDesc'), icon: <AlertOctagon className="w-4 h-4" /> },
-                        { key: 'taskCompleted', label: t('notif.taskCompleted'), desc: t('notif.taskCompletedDesc'), icon: <CheckCircle2 className="w-4 h-4" /> },
-                        { key: 'dueDateReminder', label: t('notif.dueDateReminder'), desc: t('notif.dueDateReminderDesc'), icon: <Clock className="w-4 h-4" /> },
-                        { key: 'commentAdded', label: t('notif.commentAdded'), desc: t('notif.commentAddedDesc'), icon: <MessageSquare className="w-4 h-4" /> },
-                        { key: 'feedbackRequest', label: t('notif.feedbackRequest'), desc: t('notif.feedbackRequestDesc'), icon: <Eye className="w-4 h-4" /> },
-                      ] as { key: keyof NotificationSettings; label: string; desc: string; icon: React.ReactNode }[]).map(item => (
-                        <div key={item.key} className={`flex items-center justify-between p-4 rounded-lg transition-colors ${notifSettings.enabled ? 'hover:bg-slate-50' : 'opacity-50'}`}>
-                          <div className="flex items-center gap-3">
-                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${notifSettings[item.key] && notifSettings.enabled ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-400'}`}>
-                              {item.icon}
-                            </div>
-                            <div>
-                              <div className="font-semibold text-slate-800 text-sm">{item.label}</div>
-                              <div className="text-xs text-slate-500">{item.desc}</div>
-                            </div>
-                          </div>
-                          <button
-                            disabled={!notifSettings.enabled}
-                            onClick={() => handleNotifSettingChange(item.key, !notifSettings[item.key])}
-                          >
-                            {notifSettings[item.key] ? (
-                              <ToggleRight className={`w-10 h-10 ${notifSettings.enabled ? 'text-indigo-600' : 'text-slate-300'}`} />
-                            ) : (
-                              <ToggleLeft className="w-10 h-10 text-slate-300" />
-                            )}
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Test Button */}
-                  {notifSettings.enabled && notifPermission === 'granted' && (
-                    <div className="mt-8 flex items-center gap-3">
-                      <button
-                        onClick={handleTestNotification}
-                        className="px-5 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 transition-colors flex items-center gap-2 shadow-sm"
-                      >
-                        <BellRing className="w-4 h-4" />
-                        {t('notif.testBtn')}
-                      </button>
-                      {notifTestSent && (
-                        <span className="text-sm text-emerald-600 font-medium animate-[fadeIn_0.3s_ease-out_forwards]">
-                          <CheckCircle2 className="w-4 h-4 inline mr-1" />{t('notif.testSent')}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Install App */}
-          {activeTab === 'install_app' && (
-            <div className="max-w-4xl mx-auto pb-20 mt-6 animate-[fadeIn_0.5s_ease-out_forwards]">
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="p-8 md:p-12">
-                  <div className="flex items-center gap-3 mb-2">
-                    <div className="w-10 h-10 rounded-xl bg-purple-100 flex items-center justify-center">
-                      <Download className="w-5 h-5 text-purple-600" />
-                    </div>
-                    <div>
-                      <h1 className="text-2xl font-extrabold text-slate-900">{t('install.title')}</h1>
-                      <p className="text-sm text-slate-500 font-medium">{t('install.desc')}</p>
-                    </div>
-                  </div>
-
-                  {/* Install Button */}
-                  <div className="mt-8 p-6 bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl border border-indigo-100">
-                    {isAppInstalled ? (
-                      <div className="flex items-center gap-3 text-emerald-700">
-                        <CheckCircle2 className="w-6 h-6" />
-                        <span className="font-bold text-lg">{t('install.installed')}</span>
-                      </div>
-                    ) : deferredPrompt ? (
-                      <button
-                        onClick={handleInstallApp}
-                        className="w-full sm:w-auto px-8 py-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200 flex items-center justify-center gap-3 text-lg"
-                      >
-                        <Download className="w-6 h-6" />
-                        {t('install.btn')}
-                      </button>
-                    ) : (
-                      <div>
-                        <h3 className="font-bold text-slate-800 mb-4 text-lg">{t('install.howTo')}</h3>
-                        <div className="space-y-3">
-                          <div className="flex items-start gap-3 p-3 bg-white rounded-lg border border-slate-200">
-                            <Monitor className="w-5 h-5 text-slate-500 mt-0.5 shrink-0" />
-                            <span className="text-sm text-slate-700 font-medium">{t('install.step1.chrome')}</span>
-                          </div>
-                          <div className="flex items-start gap-3 p-3 bg-white rounded-lg border border-slate-200">
-                            <Smartphone className="w-5 h-5 text-slate-500 mt-0.5 shrink-0" />
-                            <span className="text-sm text-slate-700 font-medium">{t('install.step1.safari')}</span>
-                          </div>
-                          <div className="flex items-start gap-3 p-3 bg-white rounded-lg border border-slate-200">
-                            <Monitor className="w-5 h-5 text-slate-500 mt-0.5 shrink-0" />
-                            <span className="text-sm text-slate-700 font-medium">{t('install.step1.edge')}</span>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Benefits */}
-                  <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {[
-                      { icon: <Smartphone className="w-5 h-5 text-indigo-500" />, text: t('install.benefit1') },
-                      { icon: <Monitor className="w-5 h-5 text-purple-500" />, text: t('install.benefit2') },
-                      { icon: <BellRing className="w-5 h-5 text-emerald-500" />, text: t('install.benefit3') },
-                      { icon: <Wifi className="w-5 h-5 text-amber-500" />, text: t('install.benefit4') },
-                    ].map((benefit, idx) => (
-                      <div key={idx} className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl border border-slate-100">
-                        <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-sm border border-slate-200">
-                          {benefit.icon}
-                        </div>
-                        <span className="font-semibold text-slate-700 text-sm">{benefit.text}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* Coming Soon state for non-implemented paths */}
-          {!['board', 'sync', 'issues', 'calendar', 'docs', 'deadline', 'comments', 'meetings', 'projects', 'risks', 'assignees', 'review_req', 'revision_req', 'pending_appr', 'completion_log', 'ai_meeting', 'ai_action', 'ai_weekly', 'ai_delay', 'ai_blocker', 'notifications', 'install_app'].includes(activeTab) && !currentManualKey && (
+          {!['board', 'sync', 'issues', 'calendar', 'docs', 'deadline', 'comments', 'meetings', 'projects', 'risks', 'assignees', 'review_req', 'revision_req', 'pending_appr', 'completion_log', 'ai_meeting', 'ai_action', 'ai_weekly', 'ai_delay', 'ai_blocker'].includes(activeTab) && !currentManualKey && (
             <div className="flex flex-col items-center justify-center min-h-[60vh] text-center opacity-0 animate-[fadeIn_0.5s_ease-out_forwards]">
               <div className="w-24 h-24 mb-6 relative">
                  <div className="absolute inset-0 bg-indigo-100 rounded-full animate-ping opacity-60 duration-1000"></div>
