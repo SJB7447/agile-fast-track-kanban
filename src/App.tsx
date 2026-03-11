@@ -68,6 +68,8 @@ import {
   WifiOff,
   ToggleLeft,
   ToggleRight,
+  Menu,
+  PanelLeftClose,
 } from 'lucide-react';
 
 // Firebase config from environment variables
@@ -99,6 +101,7 @@ export default function App() {
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [profilePanel, setProfilePanel] = useState<'main' | 'notifications' | 'install'>('main');
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(() => {
     try {
       const saved = localStorage.getItem('sidebar_collapsed');
@@ -760,19 +763,29 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans text-slate-900">
+      {/* Mobile Sidebar Overlay */}
+      {isMobileSidebarOpen && (
+        <div className="fixed inset-0 bg-black/40 z-30 md:hidden" onClick={() => setIsMobileSidebarOpen(false)} />
+      )}
       {/* Sidebar */}
-      <aside className="w-full md:w-[280px] bg-white border-r border-slate-200 flex flex-col shrink-0 drop-shadow-sm z-20">
+      <aside className={`fixed inset-y-0 left-0 w-[280px] bg-white border-r border-slate-200 flex flex-col shrink-0 drop-shadow-sm z-40 transition-transform duration-300 ease-in-out md:static md:translate-x-0 ${isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="p-6 border-b border-slate-100/80 bg-white sticky top-0 z-10">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-md shadow-indigo-200">
               <LayoutDashboard className="w-4 h-4" />
             </div>
-            <div>
+            <div className="flex-1">
               <h1 className="text-lg font-bold text-slate-800 tracking-tight leading-tight">
                 Fast-Track
               </h1>
               <p className="text-[11px] font-medium text-slate-500 leading-tight">Agile Workspace</p>
             </div>
+            <button
+              onClick={() => setIsMobileSidebarOpen(false)}
+              className="md:hidden p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+            >
+              <PanelLeftClose className="w-5 h-5" />
+            </button>
           </div>
         </div>
         
@@ -786,14 +799,14 @@ export default function App() {
                   onClick={() => toggleCategory(category.title)}
                   className="w-full flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-slate-50 transition-colors group"
                 >
-                  <h3 className="text-[10px] font-bold text-slate-400 tracking-wider uppercase group-hover:text-slate-600 transition-colors">
+                  <h3 className="text-[12px] font-extrabold text-slate-500 tracking-wide uppercase group-hover:text-slate-700 transition-colors">
                     {category.title}
                   </h3>
                   <div className="flex items-center gap-1.5">
                     {isCollapsed && hasActiveItem && (
                       <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
                     )}
-                    <ChevronRight className={`w-3 h-3 text-slate-400 transition-transform duration-200 ${isCollapsed ? '' : 'rotate-90'}`} />
+                    <ChevronRight className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${isCollapsed ? '' : 'rotate-90'}`} />
                   </div>
                 </button>
                 <div className={`overflow-hidden transition-all duration-200 ease-in-out ${isCollapsed ? 'max-h-0 opacity-0' : 'max-h-[500px] opacity-100 mt-1'}`}>
@@ -809,6 +822,7 @@ export default function App() {
                             } else {
                               setActiveTab(item.id);
                             }
+                            setIsMobileSidebarOpen(false);
                           }}
                           className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] transition-all duration-200 group relative outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
                             isActive
@@ -1102,30 +1116,36 @@ export default function App() {
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col h-screen overflow-hidden bg-slate-50/50">
-        <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 px-8 py-5 flex items-center justify-between shrink-0 sticky top-0 z-10 transition-all drop-shadow-sm">
+        <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 md:px-8 py-3 md:py-5 flex items-center justify-between shrink-0 sticky top-0 z-10 transition-all drop-shadow-sm">
           <div className="flex items-center gap-3">
-            <h2 className="text-xl font-bold text-slate-800 tracking-tight">
+            <button
+              onClick={() => setIsMobileSidebarOpen(true)}
+              className="md:hidden p-2 -ml-1 rounded-lg hover:bg-slate-100 text-slate-600 transition-colors"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            <h2 className="text-lg md:text-xl font-bold text-slate-800 tracking-tight truncate">
               {activeMenuLabel}
             </h2>
           </div>
           {['board', 'sync', 'issues'].includes(activeTab) && (
             <button
               onClick={() => openCreateModal()}
-              className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-indigo-700 hover:shadow-lg hover:-translate-y-0.5 transition-all outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+              className="flex items-center gap-2 bg-indigo-600 text-white px-3 md:px-5 py-2 md:py-2.5 rounded-xl text-sm font-semibold hover:bg-indigo-700 hover:shadow-lg hover:-translate-y-0.5 transition-all outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 shrink-0"
             >
               <Plus className="w-4 h-4" />
-              {t('board.newTask')}
+              <span className="hidden sm:inline">{t('board.newTask')}</span>
             </button>
           )}
         </header>
 
-        <div className="flex-1 overflow-auto p-8 relative">
+        <div className="flex-1 overflow-auto p-4 md:p-8 relative">
           {activeTab === 'board' && (
-            <div className="flex gap-6 h-full items-start overflow-x-auto pb-4">
+            <div className="flex gap-4 md:gap-6 h-full items-start overflow-x-auto pb-4 snap-x snap-mandatory md:snap-none">
               {COLUMNS.map(column => (
-                <div 
+                <div
                   key={column}
-                  className="flex-shrink-0 w-80 bg-slate-100/50 rounded-xl border border-slate-200 flex flex-col max-h-full"
+                  className="flex-shrink-0 w-[85vw] sm:w-72 md:w-80 bg-slate-100/50 rounded-xl border border-slate-200 flex flex-col max-h-full snap-start"
                   onDragOver={handleDragOver}
                   onDrop={(e) => handleDrop(e, column)}
                 >
@@ -1954,7 +1974,7 @@ export default function App() {
           {currentManualKey && manualData && (
              <div className="max-w-4xl mx-auto pb-20">
                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden min-h-[70vh]">
-                 <div className="p-8 md:p-12 prose prose-slate prose-indigo max-w-none">
+                 <div className="p-4 sm:p-8 md:p-12 prose prose-slate prose-indigo max-w-none">
                     <div className="flex items-center gap-3 text-indigo-600 font-semibold mb-6 not-prose">
                       <ListTodo className="w-6 h-6" />
                       <span className="tracking-wider uppercase text-sm">{t('manual.title')}</span>
@@ -1993,7 +2013,7 @@ export default function App() {
 
           {/* AI Automation States */}
           {(activeTab === 'ai_meeting' || activeTab === 'ai_action') && (
-            <div className="max-w-4xl mx-auto pb-20 mt-6">
+            <div className="max-w-4xl mx-auto pb-20 mt-2 md:mt-6">
                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden min-h-[500px] flex flex-col">
                  <div className="p-6 border-b border-slate-200 bg-slate-50 flex items-center gap-3">
                    {activeTab === 'ai_meeting' ? <Mic className="w-6 h-6 text-indigo-500" /> : <ListTodo className="w-6 h-6 text-indigo-500" />}
@@ -2052,9 +2072,9 @@ export default function App() {
           )}
 
           {activeTab === 'ai_weekly' && (
-            <div className="max-w-4xl mx-auto pb-20 mt-6 animate-[fadeIn_0.5s_ease-out_forwards]">
+            <div className="max-w-4xl mx-auto pb-20 mt-2 md:mt-6 animate-[fadeIn_0.5s_ease-out_forwards]">
                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden min-h-[500px]">
-                 <div className="p-8 md:p-12">
+                 <div className="p-4 sm:p-8 md:p-12">
                     <div className="flex items-center justify-between mb-8 pb-6 border-b border-slate-100">
                       <div>
                         <div className="flex items-center gap-3 text-indigo-600 font-semibold mb-2">
@@ -2094,9 +2114,9 @@ export default function App() {
           )}
 
           {activeTab === 'ai_delay' && (
-            <div className="max-w-4xl mx-auto pb-20 mt-6 animate-[fadeIn_0.5s_ease-out_forwards]">
+            <div className="max-w-4xl mx-auto pb-20 mt-2 md:mt-6 animate-[fadeIn_0.5s_ease-out_forwards]">
                <div className="bg-white rounded-xl border border-rose-200 shadow-sm overflow-hidden min-h-[500px]">
-                 <div className="p-8 md:p-12 relative overflow-hidden">
+                 <div className="p-4 sm:p-8 md:p-12 relative overflow-hidden">
                     <div className="absolute top-0 right-0 w-64 h-64 bg-rose-50 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none" />
                     
                     <div className="flex items-center gap-3 text-rose-600 font-semibold mb-6 not-prose relative z-10">
@@ -2141,9 +2161,9 @@ export default function App() {
           )}
 
           {activeTab === 'ai_blocker' && (
-            <div className="max-w-4xl mx-auto pb-20 mt-6 animate-[fadeIn_0.5s_ease-out_forwards]">
+            <div className="max-w-4xl mx-auto pb-20 mt-2 md:mt-6 animate-[fadeIn_0.5s_ease-out_forwards]">
                <div className="bg-white rounded-xl border border-orange-200 shadow-sm overflow-hidden min-h-[500px]">
-                 <div className="p-8 md:p-12 relative overflow-hidden">
+                 <div className="p-4 sm:p-8 md:p-12 relative overflow-hidden">
                     <div className="absolute top-0 left-0 w-64 h-64 bg-orange-50 rounded-full blur-3xl -ml-20 -mt-20 pointer-events-none" />
                     
                     <div className="flex items-center justify-between mb-8 relative z-10">
@@ -2227,9 +2247,9 @@ export default function App() {
 
       {/* Task Modal */}
       {isModalOpen && editingTask && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4 z-50">
+          <div className="bg-white rounded-t-2xl sm:rounded-xl shadow-xl w-full sm:max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="px-4 sm:px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
               <h3 className="text-lg font-semibold text-slate-800">
                 {editingTask.id ? 'Edit Task' : 'Create New Task'}
               </h3>
