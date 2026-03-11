@@ -11,6 +11,8 @@ export interface Task {
   status: Status;
   createdAt: number;
   createdBy: string;
+  feedbackStatus?: 'request_review' | 'request_revision' | 'pending_approval' | 'approved';
+  completedAt?: number;
 }
 
 export interface Comment {

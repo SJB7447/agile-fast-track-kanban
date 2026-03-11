@@ -101,7 +101,34 @@ export const translations: Translations = {
     'docs.fileList': '파일 목록',
     'docs.refresh': '새로고침',
     'docs.noFiles': '아직 업로드된 파일이 없습니다',
-    'docs.tryUpload': '위 영역을 클릭하여 파일을 업로드해 보세요'
+    'docs.tryUpload': '위 영역을 클릭하여 파일을 업로드해 보세요',
+
+    // Feedback Center
+    'feedback.reviewReq': '작업 리뷰 요청',
+    'feedback.reviewReqDesc': '작업이 완료되어 리뷰를 기다리고 있습니다.',
+    'feedback.revisionReq': '수정 요청',
+    'feedback.revisionReqDesc': '리뷰 결과 수정이 필요한 작업들입니다.',
+    'feedback.pendingAppr': '승인 대기',
+    'feedback.pendingApprDesc': '최종 승인을 기다리고 있는 작업들입니다.',
+    'feedback.completedLogs': '완료 로그',
+    'feedback.completedLogsDesc': '최근 완료된 작업들의 기록입니다.',
+    'feedback.reqReviewBtn': '리뷰 요청하기',
+    'feedback.reqRevisionBtn': '수정 요청하기',
+    'feedback.reqApprBtn': '승인 요청하기',
+    'feedback.approveBtn': '승인 (완료)',
+    'feedback.status.request_review': '리뷰 대기중',
+    'feedback.status.request_revision': '수정 필요',
+    'feedback.status.pending_approval': '승인 대기중',
+    'feedback.status.approved': '승인됨 (완료)',
+    'feedback.none': '해당 상태의 태스크가 없습니다.',
+
+    // Operation Manual
+    'manual.title': '운영 메뉴얼',
+    'manual.routine': '업무 시작/종료 루틴',
+    'manual.reqRules': '작업 요청 규칙',
+    'manual.meetRules': '회의 진행 규칙',
+    'manual.fileRules': '파일 관리 규칙',
+    'manual.deployCheck': '배포/제출 체크리스트'
   },
   en: {
     // Sidebar Main Categories
@@ -195,7 +222,34 @@ export const translations: Translations = {
     'docs.fileList': 'File List',
     'docs.refresh': 'Refresh',
     'docs.noFiles': 'No files uploaded yet',
-    'docs.tryUpload': 'Click the area above to upload a file'
+    'docs.tryUpload': 'Click the area above to upload a file',
+
+    // Feedback Center
+    'feedback.reviewReq': 'Review Requests',
+    'feedback.reviewReqDesc': 'Tasks waiting for peer review.',
+    'feedback.revisionReq': 'Revision Requests',
+    'feedback.revisionReqDesc': 'Tasks requiring revisions after review.',
+    'feedback.pendingAppr': 'Pending Approval',
+    'feedback.pendingApprDesc': 'Tasks waiting for final approval.',
+    'feedback.completedLogs': 'Completed Logs',
+    'feedback.completedLogsDesc': 'Archive of recently completed tasks.',
+    'feedback.reqReviewBtn': 'Request Review',
+    'feedback.reqRevisionBtn': 'Request Revision',
+    'feedback.reqApprBtn': 'Request Approval',
+    'feedback.approveBtn': 'Approve (Done)',
+    'feedback.status.request_review': 'Pending Review',
+    'feedback.status.request_revision': 'Needs Revision',
+    'feedback.status.pending_approval': 'Pending Approval',
+    'feedback.status.approved': 'Approved (Done)',
+    'feedback.none': 'No tasks in this status.',
+
+    // Operation Manual
+    'manual.title': 'Operation Manual',
+    'manual.routine': 'Work Routines',
+    'manual.reqRules': 'Request Rules',
+    'manual.meetRules': 'Meeting Rules',
+    'manual.fileRules': 'File Guidelines',
+    'manual.deployCheck': 'Deploy Checklist'
   }
 };
 

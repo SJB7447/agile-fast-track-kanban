@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useLanguage } from './i18n';
 import { DriveFile, getOrCreateAppFolder, listFiles, uploadFile, deleteFile, formatFileSize, getFileTypeIcon } from './driveService';
 import { Task, Status, Priority, Comment } from './types';
+import { manualContent, Language } from './manualContent';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, getDocFromServer } from 'firebase/firestore';
@@ -228,6 +229,9 @@ export default function App() {
   const activeMenu = menuCategories.flatMap(c => c.items).find(i => i.id === activeTab);
   const activeMenuLabel = activeMenu?.label || 'Dashboard';
 
+  const currentManualKey = activeTab.startsWith('manual_') ? activeTab.replace('manual_', '') : null;
+  const manualData = currentManualKey ? (manualContent[language as Language] || manualContent['ko'])[currentManualKey] : null;
+
   // Google Drive: load files when docs tab selected
   const loadDriveFiles = useCallback(async () => {
     if (!googleAccessToken) return;
@@ -279,6 +283,22 @@ export default function App() {
     } catch (e: any) {
       if (e.message === 'TOKEN_EXPIRED') setGoogleAccessToken(null);
       console.error('Delete error:', e);
+    }
+  };
+
+  const updateFeedbackStatus = async (taskId: string, newFeedbackStatus: Task['feedbackStatus'], newStatus?: Status) => {
+    try {
+      const updates: Partial<Task> = { feedbackStatus: newFeedbackStatus };
+      if (newStatus) {
+        updates.status = newStatus;
+        if (newStatus === 'Done') {
+          updates.completedAt = Date.now();
+        }
+      }
+      await setDoc(doc(collection(db, 'tasks'), taskId), updates, { merge: true });
+      setIsModalOpen(false);
+    } catch (e) {
+      console.error('Error updating feedback status:', e);
     }
   };
 
@@ -570,7 +590,13 @@ export default function App() {
                   return (
                     <button
                       key={item.id}
-                      onClick={() => setActiveTab(item.id)}
+                      onClick={() => {
+                        if (item.id === 'docs') {
+                          window.open('https://drive.google.com/drive/folders/1A9Oms1S0tbJEWD3QfEivyDFj4FCPjTc9?usp=drive_link', '_blank');
+                        } else {
+                          setActiveTab(item.id);
+                        }
+                      }}
                       className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] transition-all duration-200 group relative outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
                         isActive 
                           ? 'bg-indigo-50/80 text-indigo-700 font-semibold shadow-sm' 
@@ -1373,8 +1399,160 @@ export default function App() {
             </div>
           )}
 
+          {/* Feedback Center States */}
+          {['review_req', 'revision_req', 'pending_appr'].includes(activeTab) && (
+            <div className="max-w-5xl mx-auto space-y-6">
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col min-h-[600px]">
+                <div className="p-6 border-b border-slate-200">
+                  <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                    {activeTab === 'review_req' && <Eye className="w-5 h-5 text-indigo-500" />}
+                    {activeTab === 'revision_req' && <Edit3 className="w-5 h-5 text-orange-500" />}
+                    {activeTab === 'pending_appr' && <CheckCircle2 className="w-5 h-5 text-emerald-500" />}
+                    {t(activeTab === 'review_req' ? 'feedback.reviewReq' : activeTab === 'revision_req' ? 'feedback.revisionReq' : 'feedback.pendingAppr')}
+                  </h3>
+                  <p className="text-sm text-slate-500 mt-1">
+                    {t(activeTab === 'review_req' ? 'feedback.reviewReqDesc' : activeTab === 'revision_req' ? 'feedback.revisionReqDesc' : 'feedback.pendingApprDesc')}
+                  </p>
+                </div>
+                <div className="flex-1 bg-slate-50/50 p-6 flex items-start justify-center">
+                  <div className="w-full max-w-2xl space-y-4">
+                    {tasks.filter(t => t.feedbackStatus === (
+                      activeTab === 'review_req' ? 'request_review' : 
+                      activeTab === 'revision_req' ? 'request_revision' : 'pending_approval'
+                    )).map(task => (
+                      <div key={task.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-start justify-between group hover:border-indigo-300 transition-colors">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
+                              task.priority === 'High' ? 'bg-orange-100 text-orange-700 border-orange-200' :
+                              task.priority === 'Medium' ? 'bg-blue-100 text-blue-700 border-blue-200' :
+                              'bg-slate-100 text-slate-700 border-slate-200'
+                            }`}>
+                              {t(`board.priority.${task.priority.toLowerCase()}`)}
+                            </span>
+                            <span className="text-xs font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
+                              {task.assignee}
+                            </span>
+                          </div>
+                          <h4 className="font-semibold text-slate-800 text-lg mb-1">{task.title}</h4>
+                          <p className="text-sm text-slate-500 line-clamp-2">{task.description}</p>
+                        </div>
+                        <button 
+                          onClick={() => openEditModal(task)}
+                          className="px-4 py-2 bg-slate-100 hover:bg-indigo-50 text-slate-600 hover:text-indigo-600 font-medium text-sm rounded-lg transition-colors whitespace-nowrap border border-transparent hover:border-indigo-100"
+                        >
+                          리뷰하기
+                        </button>
+                      </div>
+                    ))}
+                    {tasks.filter(t => t.feedbackStatus === (
+                      activeTab === 'review_req' ? 'request_review' : 
+                      activeTab === 'revision_req' ? 'request_revision' : 'pending_approval'
+                    )).length === 0 && (
+                      <div className="text-center py-20 text-slate-400">
+                        <CheckCircle2 className="w-16 h-16 mx-auto mb-4 opacity-20 text-indigo-500" />
+                        <h4 className="text-lg font-medium text-slate-600">{t('feedback.none')}</h4>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Completion Logs State */}
+          {activeTab === 'completion_log' && (
+            <div className="max-w-5xl mx-auto space-y-6">
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col min-h-[600px]">
+                <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                      <FileArchive className="w-5 h-5 text-indigo-500" />
+                      {t('feedback.completedLogs')}
+                    </h3>
+                    <p className="text-sm text-slate-500 mt-1">{t('feedback.completedLogsDesc')}</p>
+                  </div>
+                  <div className="text-sm font-bold text-slate-500 bg-white px-3 py-1.5 rounded-lg shadow-sm border border-slate-200">
+                    Total: {tasks.filter(t => t.status === 'Done').length}
+                  </div>
+                </div>
+                <div className="flex-1 bg-white p-6">
+                  <div className="space-y-4 max-w-3xl mx-auto overflow-y-auto pr-2" style={{ maxHeight: '700px' }}>
+                    {tasks.filter(t => t.status === 'Done').sort((a, b) => (b.completedAt || b.createdAt) - (a.completedAt || a.createdAt)).map(task => (
+                      <div key={task.id} className="group relative flex items-start gap-4 p-4 rounded-xl border border-slate-100 bg-slate-50 hover:bg-white hover:border-indigo-100 hover:shadow-md transition-all">
+                        <div className="w-2 h-2 rounded-full bg-emerald-400 mt-2 ring-4 ring-emerald-50"></div>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-1">
+                            <h4 className="font-semibold text-slate-800 group-hover:text-indigo-700 transition-colors">{task.title}</h4>
+                            <span className="text-[11px] font-medium text-slate-400">
+                              {task.completedAt ? new Date(task.completedAt).toLocaleDateString() : new Date(task.createdAt).toLocaleDateString()}
+                            </span>
+                          </div>
+                          <p className="text-sm text-slate-500 line-clamp-1 mb-2">{task.description}</p>
+                          <div className="flex gap-2">
+                            <span className="text-xs bg-slate-200 text-slate-600 px-2 py-0.5 rounded font-medium">{task.assignee}</span>
+                            <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-medium flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3" /> Done
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    {tasks.filter(t => t.status === 'Done').length === 0 && (
+                      <div className="text-center py-20 text-slate-400">
+                        <FileArchive className="w-16 h-16 mx-auto mb-4 opacity-20" />
+                        <h4 className="text-lg font-medium text-slate-600">완료된 태스크가 없습니다.</h4>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Operation Manual States */}
+          {currentManualKey && manualData && (
+             <div className="max-w-4xl mx-auto pb-20">
+               <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden min-h-[70vh]">
+                 <div className="p-8 md:p-12 prose prose-slate prose-indigo max-w-none">
+                    <div className="flex items-center gap-3 text-indigo-600 font-semibold mb-6 not-prose">
+                      <ListTodo className="w-6 h-6" />
+                      <span className="tracking-wider uppercase text-sm">{t('manual.title')}</span>
+                    </div>
+                    <h1 className="text-3xl md:text-4xl font-extrabold text-slate-900 mb-8 pb-6 border-b border-slate-100">
+                      {manualData.title}
+                    </h1>
+                    
+                    {/* Notion-style Markdown Rendering (Simplified) */}
+                    <div className="space-y-6 text-slate-700 leading-relaxed font-medium">
+                      {manualData.content.split('\n').map((line, i) => {
+                        if (line.startsWith('## ')) {
+                          return <h2 key={i} className="text-xl md:text-2xl font-bold text-slate-800 mt-10 mb-4 flex items-center gap-2">{line.replace('## ', '')}</h2>;
+                        }
+                        if (line.startsWith('- [ ]')) {
+                          return (
+                            <div key={i} className="flex items-start gap-3 my-2 bg-slate-50 p-3 rounded-lg border border-slate-100">
+                              <div className="w-5 h-5 rounded border-2 border-slate-300 mt-0.5 bg-white flex-shrink-0"></div>
+                              <span dangerouslySetInnerHTML={{__html: line.replace('- [ ]', '').replace(/\*\*(.*?)\*\*/g, '<strong class="text-slate-900">$1</strong>').replace(/`(.*?)`/g, '<code class="bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded text-sm">$1</code>')}} />
+                            </div>
+                          );
+                        }
+                        if (line.startsWith('- ')) {
+                          return <li key={i} className="ml-5 my-1.5 list-disc marker:text-indigo-400" dangerouslySetInnerHTML={{__html: line.substring(2).replace(/\*\*(.*?)\*\*/g, '<strong class="text-slate-900 font-bold">$1</strong>')}} />;
+                        }
+                        if (line.match(/^\d+\. /)) {
+                          return <li key={i} className="ml-5 my-2 list-decimal font-semibold marker:text-slate-400 marker:font-bold" dangerouslySetInnerHTML={{__html: line.replace(/^\d+\. /, '').replace(/\*\*(.*?)\*\*/g, '<strong class="text-indigo-700">$1</strong>')}} />;
+                        }
+                        return line.trim() ? <p key={i} className="my-3" dangerouslySetInnerHTML={{__html: line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')}}></p> : <br key={i}/>;
+                      })}
+                    </div>
+                 </div>
+               </div>
+             </div>
+          )}
+
           {/* Coming Soon state for non-implemented paths */}
-          {!['board', 'sync', 'issues', 'calendar', 'docs', 'deadline', 'comments', 'meetings', 'projects', 'risks', 'assignees'].includes(activeTab) && (
+          {!['board', 'sync', 'issues', 'calendar', 'docs', 'deadline', 'comments', 'meetings', 'projects', 'risks', 'assignees', 'review_req', 'revision_req', 'pending_appr', 'completion_log'].includes(activeTab) && !currentManualKey && (
             <div className="flex flex-col items-center justify-center min-h-[60vh] text-center opacity-0 animate-[fadeIn_0.5s_ease-out_forwards]">
               <div className="w-24 h-24 mb-6 relative">
                  <div className="absolute inset-0 bg-indigo-100 rounded-full animate-ping opacity-60 duration-1000"></div>
@@ -1489,6 +1667,34 @@ export default function App() {
                       {COLUMNS.map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
                   </div>
+                </div>
+
+                {/* Feedback Center Action Area */}
+                <div className="mt-6 pt-4 border-t border-slate-200">
+                   <h4 className="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
+                     <Eye className="w-4 h-4 text-indigo-500" /> 피드백 요건 변경
+                   </h4>
+                   <div className="flex flex-wrap gap-2">
+                     {editingTask.status !== 'Done' && (
+                       <>
+                         <button type="button" onClick={() => updateFeedbackStatus(editingTask.id, 'request_review')} className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition-colors ${editingTask.feedbackStatus === 'request_review' ? 'bg-indigo-100 border-indigo-200 text-indigo-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                           {t('feedback.reqReviewBtn')}
+                         </button>
+                         <button type="button" onClick={() => updateFeedbackStatus(editingTask.id, 'request_revision')} className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition-colors ${editingTask.feedbackStatus === 'request_revision' ? 'bg-orange-100 border-orange-200 text-orange-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                           {t('feedback.reqRevisionBtn')}
+                         </button>
+                         <button type="button" onClick={() => updateFeedbackStatus(editingTask.id, 'pending_approval')} className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition-colors ${editingTask.feedbackStatus === 'pending_approval' ? 'bg-blue-100 border-blue-200 text-blue-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                           {t('feedback.reqApprBtn')}
+                         </button>
+                       </>
+                     )}
+                     <button type="button" onClick={() => updateFeedbackStatus(editingTask.id, 'approved', 'Done')} className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition-colors ${editingTask.feedbackStatus === 'approved' ? 'bg-emerald-100 border-emerald-200 text-emerald-700' : 'bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-100'}`}>
+                       <CheckCircle2 className="w-3.5 h-3.5 inline mr-1 -mt-0.5" /> {t('feedback.approveBtn')}
+                     </button>
+                   </div>
+                   {editingTask.feedbackStatus && (
+                     <p className="mt-2 text-[11px] text-slate-500 font-medium">현재 상태: <span className="text-indigo-600">{t(`feedback.status.${editingTask.feedbackStatus}`)}</span></p>
+                   )}
                 </div>
 
               </form>
