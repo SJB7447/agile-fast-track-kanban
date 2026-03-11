@@ -207,11 +207,11 @@ export default function App() {
     {
       title: t('nav.manual'),
       items: [
-        { id: 'routine', label: t('nav.item.workRoutine'), icon: <Power className="w-[18px] h-[18px]" /> },
-        { id: 'req_rules', label: t('nav.item.requestRules'), icon: <ClipboardList className="w-[18px] h-[18px]" /> },
-        { id: 'meet_rules', label: t('nav.item.meetingRules'), icon: <Users className="w-[18px] h-[18px]" /> },
-        { id: 'file_rules', label: t('nav.item.fileRules'), icon: <FileArchive className="w-[18px] h-[18px]" /> },
-        { id: 'deploy_check', label: t('nav.item.deployChecklist'), icon: <Send className="w-[18px] h-[18px]" /> },
+        { id: 'manual_routine', label: t('nav.item.workRoutine'), icon: <Power className="w-[18px] h-[18px]" /> },
+        { id: 'manual_req_rules', label: t('nav.item.requestRules'), icon: <ClipboardList className="w-[18px] h-[18px]" /> },
+        { id: 'manual_meet_rules', label: t('nav.item.meetingRules'), icon: <Users className="w-[18px] h-[18px]" /> },
+        { id: 'manual_file_rules', label: t('nav.item.fileRules'), icon: <FileArchive className="w-[18px] h-[18px]" /> },
+        { id: 'manual_deploy_check', label: t('nav.item.deployChecklist'), icon: <Send className="w-[18px] h-[18px]" /> },
       ]
     },
     {
@@ -1737,7 +1737,14 @@ export default function App() {
   );
 }
 
-function TaskCard({ task, onDragStart, onClick }: { task: Task, onDragStart: (e: React.DragEvent, id: string) => void, onClick: () => void }) {
+interface TaskCardProps {
+  key?: string | number;
+  task: Task;
+  onDragStart: (e: React.DragEvent, id: string) => void;
+  onClick: () => void;
+}
+
+function TaskCard({ task, onDragStart, onClick }: TaskCardProps) {
   const priorityColors = {
     High: 'bg-orange-100 text-orange-700 border-orange-200',
     Medium: 'bg-blue-100 text-blue-700 border-blue-200',
