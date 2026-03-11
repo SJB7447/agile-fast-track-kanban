@@ -6,6 +6,7 @@ import { manualContent, Language } from './manualContent';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, getDocFromServer } from 'firebase/firestore';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 import { 
   LayoutDashboard, 
@@ -104,33 +105,50 @@ export default function App() {
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [aiResult, setAiResult] = useState<any>(null);
 
-  const handleAiAction = (type: 'meeting' | 'action') => {
+  const handleAiAction = async (type: 'meeting' | 'action') => {
     if (!aiInputText.trim()) return;
     setIsAiLoading(true);
     setAiResult(null);
     
-    setTimeout(() => {
-      setIsAiLoading(false);
-      if (type === 'meeting') {
-        setAiResult({
-          type: 'meeting',
-          summary: [
-            "진행 상황 보고서: 랜딩 페이지 V1 기획안 공유 및 리뷰 진행",
-            "주요 안건: A/B 테스트 기획을 위한 핵심 성과 지표(KPI) 설정",
-            "결정 사항: 다음 주 수요일까지 A/B 테스트 프로토타입 디자인 완료 후 개발팀 전달"
-          ]
-        });
-      } else {
-        setAiResult({
-          type: 'action',
-          actions: [
-            "[개발] 로그인 시스템 구글 Auth 연동 및 테스트 진행 (담당: 프론트엔드 파트)",
-            "[디자인] 랜딩 페이지 영웅 배너 에셋 수정 및 최적화 (담당: 디자인 파트)",
-            "[기획] A/B 테스트 결과 리포트 대시보드 기획안 작성 (담당: 기획 파트)"
-          ]
-        });
+    try {
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+      if (!apiKey) {
+        throw new Error("Gemini API Key is not configured.");
       }
-    }, 1500);
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+      let prompt = "";
+      if (type === 'meeting') {
+        prompt = `다음 회의록 또는 텍스트를 분석하여 핵심 안건과 결정 사항을 3~5개의 글머리 기호(Bullet points) 문장으로 요약해주세요. 각 문장은 반드시 '- '로 시작해야 합니다. 불필요한 서술 없이 목록만 일목요연하게 출력해주세요.\n\n텍스트:\n${aiInputText}`;
+      } else {
+        prompt = `다음 회의록 또는 텍스트를 분석하여 담당자별로 해야 할 일(Action Items)을 추출해주세요. 담당자가 명확하지 않으면 적절히 추론하거나 생략하세요. 결과는 3~5개의 글머리 기호(Bullet points) 문장으로만 응답하고 각 문장은 반드시 '- [역할/담당자] 할 일 일정(있다면)' 형식이어야 합니다. 불필요한 서술 없이 목록만 일목요연하게 출력해주세요.\n\n텍스트:\n${aiInputText}`;
+      }
+
+      const result = await model.generateContent(prompt);
+      const responseText = result.response.text();
+      
+      const items = responseText
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.startsWith('-') || line.startsWith('*'))
+        .map(line => line.replace(/^[-*]\s*/, ''));
+
+      if (type === 'meeting') {
+        setAiResult({ type: 'meeting', summary: items.length > 0 ? items : ["요약할 내용을 명확하게 찾지 못했습니다."] });
+      } else {
+        setAiResult({ type: 'action', actions: items.length > 0 ? items : ["추출할 확인 가능한 액션아이템이 없습니다."] });
+      }
+    } catch (error) {
+      console.error("AI Error:", error);
+      const fallbackMsg = "AI 분석 중 오류가 발생했습니다. API 키나 설정 상태를 확인해 주세요.";
+      setAiResult({
+        type: type,
+        ...(type === 'meeting' ? { summary: [fallbackMsg] } : { actions: [fallbackMsg] })
+      });
+    } finally {
+      setIsAiLoading(false);
+    }
   };
   // Test Firestore Connection
   useEffect(() => {
