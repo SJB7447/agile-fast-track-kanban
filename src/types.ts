@@ -12,3 +12,12 @@ export interface Task {
   createdAt: number;
   createdBy: string;
 }
+
+export interface Comment {
+  id: string;
+  text: string;
+  authorId: string;
+  authorName: string;
+  authorPhotoURL: string | null;
+  createdAt: number;
+}

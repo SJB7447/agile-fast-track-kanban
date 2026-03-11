@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useLanguage } from './i18n';
 import { DriveFile, getOrCreateAppFolder, listFiles, uploadFile, deleteFile, formatFileSize, getFileTypeIcon } from './driveService';
-import { Task, Status, Priority } from './types';
+import { Task, Status, Priority, Comment } from './types';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, getDocFromServer } from 'firebase/firestore';
@@ -38,7 +39,8 @@ import {
   ListTodo,
   BarChart3,
   AlertTriangle,
-  Sparkles
+  Sparkles,
+  Video
 } from 'lucide-react';
 
 // Firebase config from environment variables
@@ -68,6 +70,19 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<string>('sync');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+
+  // Comments State
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [newComment, setNewComment] = useState("");
+
+  const isThisWeek = (dateStr: string) => {
+    if (!dateStr) return false;
+    const d = new Date(dateStr);
+    const now = new Date();
+    const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
+    const endOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() + (6 - now.getDay()));
+    return d >= startOfWeek && d <= endOfWeek;
+  };
 
   // Calendar State
   const [isCalendarConnected, setIsCalendarConnected] = useState(false);
@@ -106,19 +121,47 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Firestore Tasks Listener
+  // Firestore Tasks and Comments Listener
   useEffect(() => {
     if (!isAuthReady || !user) return;
     
-    const unsubscribe = onSnapshot(collection(db, 'tasks'), (snapshot) => {
+    const unsubscribeTasks = onSnapshot(collection(db, 'tasks'), (snapshot) => {
       const newTasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Task));
       setTasks(newTasks);
     }, (error) => {
-      console.error("Firestore Error:", error);
+      console.error("Firestore Tasks Error:", error);
+    });
+
+    const unsubscribeComments = onSnapshot(collection(db, 'comments'), (snapshot) => {
+      const newComments = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Comment));
+      newComments.sort((a,b) => b.createdAt - a.createdAt);
+      setComments(newComments);
+    }, (error) => {
+      console.error("Firestore Comments Error:", error);
     });
     
-    return () => unsubscribe();
+    return () => { 
+      unsubscribeTasks(); 
+      unsubscribeComments(); 
+    };
   }, [isAuthReady, user]);
+
+  const handleCommentSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newComment.trim() || !user) return;
+    try {
+      await setDoc(doc(collection(db, 'comments')), {
+        text: newComment,
+        authorId: user.uid,
+        authorName: user.displayName || 'User',
+        authorPhotoURL: user.photoURL || null,
+        createdAt: Date.now()
+      });
+      setNewComment("");
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   // Calendar Events Fetcher
   useEffect(() => {
@@ -127,55 +170,57 @@ export default function App() {
     }
   }, [currentMonth, isCalendarConnected, googleAccessToken]);
 
+  const { t, language, setLanguage } = useLanguage();
+
   const menuCategories = [
     {
-      title: "회사 홈",
+      title: t('nav.companyHome'),
       items: [
-        { id: 'sync', label: '오늘 할 일', icon: <Clock className="w-[18px] h-[18px]" /> },
-        { id: 'deadline', label: '이번 주 마감', icon: <CalendarClock className="w-[18px] h-[18px]" /> },
-        { id: 'issues', label: '긴급 이슈', icon: <AlertOctagon className="w-[18px] h-[18px]" />, badge: tasks.filter(t => t.status === 'Blocked').length },
-        { id: 'comments', label: '팀 코멘트', icon: <MessageSquare className="w-[18px] h-[18px]" /> },
-        { id: 'meetings', label: '회의 일정', icon: <Users className="w-[18px] h-[18px]" /> },
-        { id: 'docs', label: '문서 바로가기', icon: <FileText className="w-[18px] h-[18px]" /> },
+        { id: 'sync', label: t('nav.item.today'), icon: <Clock className="w-[18px] h-[18px]" /> },
+        { id: 'deadline', label: t('nav.item.deadline'), icon: <CalendarClock className="w-[18px] h-[18px]" /> },
+        { id: 'issues', label: t('nav.item.issues'), icon: <AlertOctagon className="w-[18px] h-[18px]" />, badge: tasks.filter(t => t.status === 'Blocked').length },
+        { id: 'comments', label: t('nav.item.comments'), icon: <MessageSquare className="w-[18px] h-[18px]" /> },
+        { id: 'meetings', label: t('nav.item.meetings'), icon: <Users className="w-[18px] h-[18px]" /> },
+        { id: 'docs', label: t('nav.item.docs'), icon: <FileText className="w-[18px] h-[18px]" /> },
       ]
     },
     {
-      title: "프로젝트 센터",
+      title: t('nav.projectCenter'),
       items: [
-        { id: 'projects', label: '프로젝트 목록', icon: <Folder className="w-[18px] h-[18px]" /> },
-        { id: 'board', label: '상태 보드', icon: <LayoutDashboard className="w-[18px] h-[18px]" /> },
-        { id: 'calendar', label: '일정 캘린더', icon: <CalendarDays className="w-[18px] h-[18px]" /> },
-        { id: 'risks', label: '리스크 보드', icon: <ShieldAlert className="w-[18px] h-[18px]" /> },
-        { id: 'assignees', label: '담당자별 보기', icon: <Users className="w-[18px] h-[18px]" /> },
+        { id: 'projects', label: t('nav.item.projects'), icon: <Folder className="w-[18px] h-[18px]" /> },
+        { id: 'board', label: t('nav.item.board'), icon: <LayoutDashboard className="w-[18px] h-[18px]" /> },
+        { id: 'calendar', label: t('nav.item.calendar'), icon: <CalendarDays className="w-[18px] h-[18px]" /> },
+        { id: 'risks', label: t('nav.item.risks'), icon: <ShieldAlert className="w-[18px] h-[18px]" /> },
+        { id: 'assignees', label: t('nav.item.assignees'), icon: <Users className="w-[18px] h-[18px]" /> },
       ]
     },
     {
-      title: "피드백 센터",
+      title: t('nav.feedbackCenter'),
       items: [
-        { id: 'review_req', label: '작업 리뷰 요청', icon: <Eye className="w-[18px] h-[18px]" /> },
-        { id: 'revision_req', label: '수정 요청', icon: <Edit3 className="w-[18px] h-[18px]" /> },
-        { id: 'pending_appr', label: '승인 대기', icon: <Clock className="w-[18px] h-[18px]" /> },
-        { id: 'completion_log', label: '완료 로그', icon: <CheckCircle2 className="w-[18px] h-[18px]" /> },
+        { id: 'review_req', label: t('nav.item.reviewRequest'), icon: <Eye className="w-[18px] h-[18px]" /> },
+        { id: 'revision_req', label: t('nav.item.editRequest'), icon: <Edit3 className="w-[18px] h-[18px]" /> },
+        { id: 'pending_appr', label: t('nav.item.pendingApproval'), icon: <Clock className="w-[18px] h-[18px]" /> },
+        { id: 'completion_log', label: t('nav.item.completedLogs'), icon: <CheckCircle2 className="w-[18px] h-[18px]" /> },
       ]
     },
     {
-      title: "운영 메뉴얼",
+      title: t('nav.manual'),
       items: [
-        { id: 'routine', label: '업무 시작/종료 루틴', icon: <Power className="w-[18px] h-[18px]" /> },
-        { id: 'req_rules', label: '작업 요청 규칙', icon: <ClipboardList className="w-[18px] h-[18px]" /> },
-        { id: 'meet_rules', label: '회의 진행 규칙', icon: <Users className="w-[18px] h-[18px]" /> },
-        { id: 'file_rules', label: '파일 관리 규칙', icon: <FileArchive className="w-[18px] h-[18px]" /> },
-        { id: 'deploy_check', label: '배포/제출 체크리스트', icon: <Send className="w-[18px] h-[18px]" /> },
+        { id: 'routine', label: t('nav.item.workRoutine'), icon: <Power className="w-[18px] h-[18px]" /> },
+        { id: 'req_rules', label: t('nav.item.requestRules'), icon: <ClipboardList className="w-[18px] h-[18px]" /> },
+        { id: 'meet_rules', label: t('nav.item.meetingRules'), icon: <Users className="w-[18px] h-[18px]" /> },
+        { id: 'file_rules', label: t('nav.item.fileRules'), icon: <FileArchive className="w-[18px] h-[18px]" /> },
+        { id: 'deploy_check', label: t('nav.item.deployChecklist'), icon: <Send className="w-[18px] h-[18px]" /> },
       ]
     },
     {
-      title: "AI 자동화",
+      title: t('nav.aiAutomation'),
       items: [
-        { id: 'ai_meeting', label: '회의록 요약', icon: <Mic className="w-[18px] h-[18px]" /> },
-        { id: 'ai_action', label: '액션아이템 추출', icon: <ListTodo className="w-[18px] h-[18px]" /> },
-        { id: 'ai_weekly', label: '주간 업무 요약', icon: <BarChart3 className="w-[18px] h-[18px]" /> },
-        { id: 'ai_delay', label: '일정 지연 경고', icon: <AlertTriangle className="w-[18px] h-[18px]" /> },
-        { id: 'ai_blocker', label: '막힌 이슈 알림', icon: <ShieldAlert className="w-[18px] h-[18px]" /> },
+        { id: 'ai_meeting', label: t('nav.item.summaryMeetings'), icon: <Mic className="w-[18px] h-[18px]" /> },
+        { id: 'ai_action', label: t('nav.item.extractActions'), icon: <ListTodo className="w-[18px] h-[18px]" /> },
+        { id: 'ai_weekly', label: t('nav.item.weeklySummary'), icon: <BarChart3 className="w-[18px] h-[18px]" /> },
+        { id: 'ai_delay', label: t('nav.item.delayWarning'), icon: <AlertTriangle className="w-[18px] h-[18px]" /> },
+        { id: 'ai_blocker', label: t('nav.item.blockedAlert'), icon: <ShieldAlert className="w-[18px] h-[18px]" /> },
       ]
     }
   ];
@@ -556,14 +601,33 @@ export default function App() {
           ))}
         </nav>
         
-        <div className="p-4 border-t border-slate-100 bg-white shrink-0">
+        <div className="p-4 border-t border-slate-100 bg-white min-h-[68px] flex flex-col gap-2 shrink-0">
+          <div className="flex items-center justify-between px-2 w-full">
+            <div className="flex bg-slate-100 rounded-lg p-1 w-full relative">
+              <div 
+                className={`absolute inset-y-1 w-[calc(50%-4px)] bg-white rounded-md shadow-sm transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${language === 'en' ? 'translate-x-[calc(100%+4px)]' : 'translate-x-0'}`}
+              ></div>
+              <button
+                onClick={() => setLanguage('ko')}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-semibold tracking-wide rounded-md transition-colors relative z-10 ${language === 'ko' ? 'text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                🇰🇷 한국어
+              </button>
+              <button
+                onClick={() => setLanguage('en')}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-semibold tracking-wide rounded-md transition-colors relative z-10 ${language === 'en' ? 'text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                🇺🇸 English
+              </button>
+            </div>
+          </div>
           <div className="flex items-center gap-3 px-2 hover:bg-slate-50 p-2 rounded-lg cursor-pointer transition-colors border border-transparent hover:border-slate-200">
             <img src={user.photoURL || `https://ui-avatars.com/api/?name=${user.displayName}`} alt="Profile" className="w-9 h-9 rounded-full ring-2 ring-white shadow-sm" />
             <div className="flex-1 min-w-0">
               <p className="text-[13px] font-bold text-slate-800 truncate leading-tight">{user.displayName}</p>
               <p className="text-[11px] font-medium text-slate-500 truncate leading-tight">{user.email}</p>
             </div>
-            <button onClick={handleLogout} className="text-slate-400 hover:text-slate-600 p-1.5 rounded-md hover:bg-slate-200 transition-colors" title="Sign Out">
+            <button onClick={handleLogout} className="text-slate-400 hover:text-slate-600 p-1.5 rounded-md hover:bg-slate-200 transition-colors" title={t('auth.logout')}>
               <LogOut className="w-4 h-4" />
             </button>
           </div>
@@ -584,7 +648,7 @@ export default function App() {
               className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-indigo-700 hover:shadow-lg hover:-translate-y-0.5 transition-all outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
             >
               <Plus className="w-4 h-4" />
-              New Task
+              {t('board.newTask')}
             </button>
           )}
         </header>
@@ -637,12 +701,12 @@ export default function App() {
               <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
                 <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
                   <Clock className="w-5 h-5 text-indigo-500" />
-                  Today's Focus
+                  {t('home.todayTasks')}
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div className="bg-emerald-50 p-4 rounded-lg border border-emerald-100">
                     <h4 className="font-medium text-emerald-800 mb-2 flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4" /> Done Yesterday
+                      <CheckCircle2 className="w-4 h-4" /> {t('board.done')}
                     </h4>
                     <ul className="space-y-2">
                       {tasks.filter(t => t.status === 'Done').slice(0, 5).map(t => (
@@ -651,13 +715,13 @@ export default function App() {
                         </li>
                       ))}
                       {tasks.filter(t => t.status === 'Done').length === 0 && (
-                        <li className="text-sm text-emerald-600/70 italic">No tasks completed recently.</li>
+                        <li className="text-sm text-emerald-600/70 italic">{t('home.noTasks')}</li>
                       )}
                     </ul>
                   </div>
                   <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
                     <h4 className="font-medium text-blue-800 mb-2 flex items-center gap-2">
-                      <Calendar className="w-4 h-4" /> Doing Today
+                      <Calendar className="w-4 h-4" /> {t('board.inProgress')}
                     </h4>
                     <ul className="space-y-2">
                       {tasks.filter(t => t.status === 'In Progress').map(t => (
@@ -666,13 +730,13 @@ export default function App() {
                         </li>
                       ))}
                       {tasks.filter(t => t.status === 'In Progress').length === 0 && (
-                        <li className="text-sm text-blue-600/70 italic">No tasks currently in progress.</li>
+                        <li className="text-sm text-blue-600/70 italic">{t('home.noTasks')}</li>
                       )}
                     </ul>
                   </div>
                   <div className="bg-red-50 p-4 rounded-lg border border-red-100">
                     <h4 className="font-medium text-red-800 mb-2 flex items-center gap-2">
-                      <AlertOctagon className="w-4 h-4" /> Blockers
+                      <AlertOctagon className="w-4 h-4" /> {t('board.blocked')}
                     </h4>
                     <ul className="space-y-2">
                       {tasks.filter(t => t.status === 'Blocked').map(t => (
@@ -681,7 +745,7 @@ export default function App() {
                         </li>
                       ))}
                       {tasks.filter(t => t.status === 'Blocked').length === 0 && (
-                        <li className="text-sm text-red-600/70 italic">No current blockers. Great job!</li>
+                        <li className="text-sm text-red-600/70 italic">{t('issues.goodJob')}</li>
                       )}
                     </ul>
                   </div>
@@ -937,8 +1001,380 @@ export default function App() {
             </div>
           )}
 
+          {/* Deadline state */}
+          {activeTab === 'deadline' && (
+            <div className="max-w-5xl mx-auto">
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="p-6 border-b border-slate-200">
+                  <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                    <CalendarClock className="w-5 h-5 text-indigo-500" />
+                    이번 주 마감 태스크
+                  </h3>
+                  <p className="text-sm text-slate-500 mt-1">이번 주에 마감되는 작업 목록입니다.</p>
+                </div>
+                <div className="divide-y divide-slate-200">
+                  {tasks.filter(t => isThisWeek(t.dueDate)).sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()).map(task => (
+                    <div key={task.id} className="p-4 hover:bg-slate-50 transition-colors flex items-start gap-4">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <h4 className="font-medium text-slate-900">{task.title}</h4>
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                            task.priority === 'High' ? 'bg-red-100 text-red-700' : 
+                            task.priority === 'Medium' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'
+                          }`}>
+                            {t(`board.priority.${task.priority.toLowerCase()}`)}
+                          </span>
+                        </div>
+                        <p className="text-sm text-slate-600 mb-2">{task.description}</p>
+                        <div className="flex items-center gap-4 text-xs text-slate-500">
+                          <span className="flex items-center gap-1 font-semibold text-red-600">
+                            <Calendar className="w-3 h-3" /> 마감: {task.dueDate}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Users className="w-3 h-3" /> {task.assignee || '미지정'}
+                          </span>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => openEditModal(task)}
+                        className="px-3 py-1.5 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors border border-slate-200"
+                      >
+                        상세보기
+                      </button>
+                    </div>
+                  ))}
+                  {tasks.filter(t => isThisWeek(t.dueDate)).length === 0 && (
+                    <div className="p-8 text-center text-slate-500">
+                      <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto mb-3 opacity-50" />
+                      <p className="font-medium text-slate-600">이번 주에 마감되는 작업이 없습니다.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Comments state */}
+          {activeTab === 'comments' && (
+            <div className="max-w-4xl mx-auto flex flex-col h-[calc(100vh-140px)]">
+              <div className="bg-white rounded-t-xl border border-slate-200 shadow-sm p-6 border-b shrink-0 flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                    <MessageSquare className="w-5 h-5 text-indigo-500" />
+                    팀 코멘트
+                  </h3>
+                  <p className="text-sm text-slate-500 mt-1">팀원들과 자유롭게 의견을 나누세요.</p>
+                </div>
+                <div className="text-sm text-slate-500 font-medium">총 {comments.length}개의 코멘트</div>
+              </div>
+              <div className="flex-1 overflow-y-auto bg-slate-50 p-6 space-y-4 border-l border-r border-slate-200">
+                {comments.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full text-slate-400">
+                    <MessageSquare className="w-12 h-12 mb-3 opacity-20" />
+                    <p>첫 번째 코멘트를 남겨보세요!</p>
+                  </div>
+                ) : (
+                  comments.map(comment => (
+                    <div key={comment.id} className="flex gap-4 p-4 bg-white rounded-xl shadow-sm border border-slate-100">
+                      <img src={comment.authorPhotoURL || `https://ui-avatars.com/api/?name=${comment.authorName}`} alt="Profile" className="w-10 h-10 rounded-full" />
+                      <div className="flex-1">
+                        <div className="flex items-baseline gap-2 mb-1">
+                          <span className="font-semibold text-slate-800">{comment.authorName}</span>
+                          <span className="text-[11px] text-slate-400">{new Date(comment.createdAt).toLocaleString()}</span>
+                        </div>
+                        <p className="text-slate-600 text-sm whitespace-pre-wrap leading-relaxed">{comment.text}</p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="bg-white rounded-b-xl border border-slate-200 shadow-sm p-4 shrink-0">
+                <form onSubmit={handleCommentSubmit} className="flex gap-3">
+                  <input
+                    type="text"
+                    value={newComment}
+                    onChange={(e) => setNewComment(e.target.value)}
+                    placeholder="팀에 코멘트 남기기..."
+                    className="flex-1 px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-inner"
+                  />
+                  <button 
+                    type="submit" 
+                    disabled={!newComment.trim()}
+                    className="px-5 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                  >
+                    <Send className="w-4 h-4" /> 작성
+                  </button>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Meetings state */}
+          {activeTab === 'meetings' && (
+            <div className="max-w-5xl mx-auto space-y-6">
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="p-6 border-b border-slate-200 flex justify-between items-center">
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                      <Users className="w-5 h-5 text-indigo-500" />
+                      예정된 회의 일정
+                    </h3>
+                    <p className="text-sm text-slate-500 mt-1">Google Calendar와 동기화된 이벤트 목록입니다.</p>
+                  </div>
+                  {!isCalendarConnected && (
+                    <button onClick={handleLogin} className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-lg text-sm font-semibold hover:bg-blue-100 transition-colors border border-blue-200">
+                      <Calendar className="w-4 h-4" /> 캘린더 연동하기
+                    </button>
+                  )}
+                </div>
+                {isCalendarConnected ? (
+                  <div className="divide-y divide-slate-100">
+                    {isLoadingEvents ? (
+                      <div className="p-8 text-center text-slate-500">일정을 불러오는 중입니다...</div>
+                    ) : calendarEvents.length > 0 ? (
+                      calendarEvents.map((event, i) => {
+                        const isToday = new Date(event.start.dateTime || event.start.date).toDateString() === new Date().toDateString();
+                        return (
+                          <div key={i} className="p-4 hover:bg-slate-50 transition-colors flex items-start gap-4">
+                            <div className={`mt-1 flex-shrink-0 w-12 text-center flex flex-col ${isToday ? 'text-indigo-600' : 'text-slate-500'}`}>
+                              <span className="text-xs font-semibold uppercase">{new Date(event.start.dateTime || event.start.date).toLocaleString('en-US', { month: 'short' })}</span>
+                              <span className="text-2xl font-bold leading-none">{new Date(event.start.dateTime || event.start.date).getDate()}</span>
+                            </div>
+                            <div className="flex-1">
+                              <h4 className="font-medium text-slate-900 line-clamp-1">{event.summary || '제목 없음'}</h4>
+                              <div className="flex items-center gap-3 mt-1.5 text-xs text-slate-500">
+                                <span className="flex items-center gap-1">
+                                  <Clock className="w-3 h-3" />
+                                  {event.start.dateTime 
+                                    ? `${new Date(event.start.dateTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - ${new Date(event.end.dateTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`
+                                    : '종일 일정'
+                                  }
+                                </span>
+                                {event.hangoutLink && (
+                                  <a href={event.hangoutLink} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-blue-600 hover:underline">
+                                    <Video className="w-3 h-3" /> 화상 회의 참석
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="p-10 text-center text-slate-500">
+                        <Calendar className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                        <p className="font-medium text-slate-600">예정된 일정이 없습니다.</p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="p-10 text-center text-slate-500 bg-slate-50/50">
+                    <Calendar className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                    <p className="font-medium text-slate-600">Google Calendar 연동이 필요합니다.</p>
+                    <p className="text-sm mt-1">상단의 '캘린더 연동하기' 버튼을 클릭하세요.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Projects state */}
+          {activeTab === 'projects' && (
+            <div className="max-w-5xl mx-auto space-y-6">
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="p-6 border-b border-slate-200 flex justify-between items-center">
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                      <Folder className="w-5 h-5 text-indigo-500" />
+                      프로젝트 목록
+                    </h3>
+                    <p className="text-sm text-slate-500 mt-1">현재 진행 중인 프로젝트의 전반적인 상태를 확인합니다.</p>
+                  </div>
+                </div>
+                <div className="p-6">
+                  {/* Single Default Project for MVP */}
+                  <div className="border border-slate-200 rounded-xl overflow-hidden hover:shadow-md transition-shadow">
+                     <div className="bg-slate-50 border-b border-slate-200 p-5 flex justify-between items-start">
+                        <div>
+                          <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px-2.5 py-1 rounded-full uppercase tracking-wider">Active</span>
+                          <h4 className="text-xl font-bold text-slate-800 mt-3 mb-1">Fast-Track Agile Development</h4>
+                          <p className="text-sm text-slate-500">칸반 보드와 구글 드라이브 통합을 통한 최우선 애자일 시스템 도입</p>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-3xl font-black text-slate-800 mb-1">
+                            {tasks.length > 0 ? Math.round((tasks.filter(t => t.status === 'Done').length / tasks.length) * 100) : 0}%
+                          </div>
+                          <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Overall Progress</p>
+                        </div>
+                     </div>
+                     <div className="p-6 grid grid-cols-4 gap-4 bg-white">
+                        <div className="p-4 bg-slate-50 rounded-lg border border-slate-100 flex flex-col items-center justify-center">
+                           <span className="text-2xl font-bold text-slate-700">{tasks.filter(t => t.status === 'To Do').length}</span>
+                           <span className="text-xs font-semibold text-slate-500 uppercase mt-1 tracking-wider">To Do</span>
+                        </div>
+                        <div className="p-4 bg-blue-50 rounded-lg border border-blue-100 flex flex-col items-center justify-center">
+                           <span className="text-2xl font-bold text-blue-700">{tasks.filter(t => t.status === 'In Progress').length}</span>
+                           <span className="text-xs font-semibold text-blue-500 uppercase mt-1 tracking-wider">In Progress</span>
+                        </div>
+                        <div className="p-4 bg-emerald-50 rounded-lg border border-emerald-100 flex flex-col items-center justify-center">
+                           <span className="text-2xl font-bold text-emerald-700">{tasks.filter(t => t.status === 'Done').length}</span>
+                           <span className="text-xs font-semibold text-emerald-500 uppercase mt-1 tracking-wider">Done</span>
+                        </div>
+                        <div className="p-4 bg-red-50 rounded-lg border border-red-100 flex flex-col items-center justify-center relative overflow-hidden">
+                           <div className="absolute top-0 right-0 w-8 h-8 bg-red-100 rounded-bl-full shadow-sm flex items-start justify-end pr-1.5 pt-1.5">
+                             <div className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse"></div>
+                           </div>
+                           <span className="text-2xl font-bold text-red-700">{tasks.filter(t => t.status === 'Blocked').length}</span>
+                           <span className="text-xs font-semibold text-red-500 uppercase mt-1 tracking-wider">Blocked</span>
+                        </div>
+                     </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Risks state */}
+          {activeTab === 'risks' && (
+            <div className="max-w-5xl mx-auto space-y-6">
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col min-h-[500px]">
+                <div className="p-6 border-b border-slate-200">
+                  <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                    <ShieldAlert className="w-5 h-5 text-red-500" />
+                    리스크 보드
+                  </h3>
+                  <p className="text-sm text-slate-500 mt-1">위험도가 높거나 진행이 차단된 특별 관리 대상 작업들입니다.</p>
+                </div>
+                <div className="flex-1 bg-slate-50/50 p-6 flex items-start justify-center">
+                  <div className="max-w-3xl w-full grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Critical Risks */}
+                    <div className="bg-red-50/50 rounded-xl border border-red-200 shadow-sm overflow-hidden">
+                       <div className="bg-red-100/50 px-4 py-3 border-b border-red-200 flex justify-between items-center">
+                          <h4 className="font-bold text-red-800 flex items-center gap-1.5">
+                             <AlertOctagon className="w-4 h-4" /> Critical
+                          </h4>
+                          <span className="bg-red-200 text-red-800 text-xs font-bold px-2 py-0.5 rounded-full">
+                            {tasks.filter(t => t.status === 'Blocked' && t.priority === 'High').length}
+                          </span>
+                       </div>
+                       <div className="p-3 space-y-3 max-h-[400px] overflow-y-auto">
+                         {tasks.filter(t => t.status === 'Blocked' && t.priority === 'High').map(task => (
+                           <div key={task.id} className="bg-white p-3 rounded-lg border border-red-100 shadow-sm select-text">
+                              <p className="font-semibold text-slate-800 text-sm mb-1">{task.title}</p>
+                              <p className="text-xs text-slate-500 mb-2">{task.assignee || '미지정'}</p>
+                              <button onClick={() => openEditModal(task)} className="text-[11px] font-bold text-red-600 hover:text-red-800 uppercase tracking-widest">Resolve Now &rarr;</button>
+                           </div>
+                         ))}
+                         {tasks.filter(t => t.status === 'Blocked' && t.priority === 'High').length === 0 && (
+                            <div className="text-center p-4 text-xs font-medium text-red-400">No Critical Risks</div>
+                         )}
+                       </div>
+                    </div>
+
+                    {/* Moderate Risks */}
+                    <div className="bg-orange-50/50 rounded-xl border border-orange-200 shadow-sm overflow-hidden">
+                       <div className="bg-orange-100/50 px-4 py-3 border-b border-orange-200 flex justify-between items-center">
+                          <h4 className="font-bold text-orange-800 flex items-center gap-1.5">
+                             <AlertTriangle className="w-4 h-4" /> Moderate
+                          </h4>
+                          <span className="bg-orange-200 text-orange-800 text-xs font-bold px-2 py-0.5 rounded-full">
+                            {tasks.filter(t => (t.status === 'Blocked' && t.priority !== 'High') || (t.status !== 'Blocked' && t.priority === 'High' && t.status !== 'Done')).length}
+                          </span>
+                       </div>
+                       <div className="p-3 space-y-3 max-h-[400px] overflow-y-auto">
+                         {tasks.filter(t => (t.status === 'Blocked' && t.priority !== 'High') || (t.status !== 'Blocked' && t.priority === 'High' && t.status !== 'Done')).map(task => (
+                           <div key={task.id} className="bg-white p-3 rounded-lg border border-orange-100 shadow-sm select-text">
+                              <p className="font-semibold text-slate-800 text-sm mb-1">{task.title}</p>
+                              <p className="text-xs text-slate-500 mb-2">{task.assignee || '미지정'} • {task.status}</p>
+                              <button onClick={() => openEditModal(task)} className="text-[11px] font-bold text-orange-600 hover:text-orange-800 uppercase tracking-widest">Review &rarr;</button>
+                           </div>
+                         ))}
+                         {tasks.filter(t => (t.status === 'Blocked' && t.priority !== 'High') || (t.status !== 'Blocked' && t.priority === 'High' && t.status !== 'Done')).length === 0 && (
+                            <div className="text-center p-4 text-xs font-medium text-orange-400">No Moderate Risks</div>
+                         )}
+                       </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Assignees state */}
+          {activeTab === 'assignees' && (
+            <div className="max-w-5xl mx-auto space-y-6">
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                      <Users className="w-5 h-5 text-indigo-500" />
+                      담당자별 보기
+                    </h3>
+                    <p className="text-sm text-slate-500 mt-1">팀원별 업무 강도와 진행 상태를 확인합니다.</p>
+                  </div>
+                </div>
+                <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {Array.from(new Set(tasks.map(t => t.assignee).filter(Boolean))).map(assignee => {
+                    const userTasks = tasks.filter(t => t.assignee === assignee);
+                    const done = userTasks.filter(t => t.status === 'Done').length;
+                    const inProgress = userTasks.filter(t => t.status === 'In Progress').length;
+                    const blocked = userTasks.filter(t => t.status === 'Blocked').length;
+                    const todo = userTasks.filter(t => t.status === 'To Do').length;
+                    const total = userTasks.length;
+                    const progress = Math.round((done / total) * 100);
+
+                    return (
+                      <div key={assignee} className="bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow p-5 relative overflow-hidden group">
+                        <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-br from-indigo-50 to-white -z-10 rounded-bl-full"></div>
+                        <div className="flex items-center gap-3 mb-4">
+                          <img src={`https://ui-avatars.com/api/?name=${assignee}&background=6366f1&color=fff`} alt={assignee} className="w-10 h-10 rounded-full shadow-sm" />
+                          <div>
+                            <h4 className="font-bold text-slate-800">{assignee}</h4>
+                            <p className="text-xs font-medium text-slate-500">{total} Tasks Total</p>
+                          </div>
+                        </div>
+
+                        <div className="space-y-3">
+                          <div className="w-full bg-slate-100 rounded-full h-2 mb-4 overflow-hidden shadow-inner">
+                            <div className="bg-indigo-500 h-2 rounded-full transition-all duration-500" style={{ width: `${progress}%` }}></div>
+                          </div>
+                          
+                          <div className="grid grid-cols-2 gap-2 text-sm">
+                            <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+                               <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider">To Do</span>
+                               <span className="font-bold text-slate-700">{todo}</span>
+                            </div>
+                            <div className="flex justify-between items-center p-2 rounded-lg bg-blue-50 border border-blue-100">
+                               <span className="text-blue-500 text-xs font-semibold uppercase tracking-wider">Doing</span>
+                               <span className="font-bold text-blue-700">{inProgress}</span>
+                            </div>
+                            <div className="flex justify-between items-center p-2 rounded-lg bg-red-50 border border-red-100">
+                               <span className="text-red-500 text-xs font-semibold uppercase tracking-wider">Blocked</span>
+                               <span className="font-bold text-red-700">{blocked}</span>
+                            </div>
+                            <div className="flex justify-between items-center p-2 rounded-lg bg-emerald-50 border border-emerald-100">
+                               <span className="text-emerald-600 text-xs font-semibold uppercase tracking-wider">Done</span>
+                               <span className="font-bold text-emerald-700">{done}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  
+                  {Array.from(new Set(tasks.map(t => t.assignee).filter(Boolean))).length === 0 && (
+                     <div className="col-span-full py-12 text-center text-slate-400">
+                        <Users className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                        <p>아직 담당자가 지정된 태스크가 없습니다.</p>
+                     </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Coming Soon state for non-implemented paths */}
-          {!['board', 'sync', 'issues', 'calendar', 'docs'].includes(activeTab) && (
+          {!['board', 'sync', 'issues', 'calendar', 'docs', 'deadline', 'comments', 'meetings', 'projects', 'risks', 'assignees'].includes(activeTab) && (
             <div className="flex flex-col items-center justify-center min-h-[60vh] text-center opacity-0 animate-[fadeIn_0.5s_ease-out_forwards]">
               <div className="w-24 h-24 mb-6 relative">
                  <div className="absolute inset-0 bg-indigo-100 rounded-full animate-ping opacity-60 duration-1000"></div>
@@ -946,16 +1382,16 @@ export default function App() {
                    <Sparkles className="w-10 h-10" />
                  </div>
               </div>
-              <h3 className="text-2xl font-bold text-slate-800 mb-3 tracking-tight">서비스 준비 중입니다</h3>
+              <h3 className="text-2xl font-bold text-slate-800 mb-3 tracking-tight">{t('generic.comingSoon')}</h3>
               <p className="text-[15px] font-medium text-slate-500 max-w-sm mx-auto leading-relaxed">
-                <span className="text-indigo-600 font-semibold">{activeMenuLabel}</span> 기능은 현재 고도화 개발 중입니다.<br/>빠른 시일 내에 멋진 모습으로 찾아뵙겠습니다!
+                <span className="text-indigo-600 font-semibold">{activeMenuLabel}</span> {t('generic.comingSoonDesc')}
               </p>
               
               <button 
                 onClick={() => setActiveTab('sync')}
                 className="mt-8 px-6 py-2.5 bg-white border border-slate-200 text-slate-700 text-sm font-semibold rounded-xl shadow-sm hover:bg-slate-50 hover:text-indigo-600 hover:border-indigo-200 transition-all flex items-center gap-2 group"
               >
-                <Home className="w-4 h-4 text-slate-400 group-hover:text-indigo-600 transition-colors" /> 홈으로 돌아가기
+                <Home className="w-4 h-4 text-slate-400 group-hover:text-indigo-600 transition-colors" /> {t('generic.goHome')}
               </button>
             </div>
           )}
