@@ -99,6 +99,22 @@ export default function App() {
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [profilePanel, setProfilePanel] = useState<'main' | 'notifications' | 'install'>('main');
+  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem('sidebar_collapsed');
+      if (saved) return new Set(JSON.parse(saved));
+    } catch {}
+    return new Set<string>();
+  });
+
+  const toggleCategory = (title: string) => {
+    setCollapsedCategories(prev => {
+      const next = new Set(prev);
+      if (next.has(title)) next.delete(title); else next.add(title);
+      localStorage.setItem('sidebar_collapsed', JSON.stringify([...next]));
+      return next;
+    });
+  };
 
   // Comments State
   const [comments, setComments] = useState<Comment[]>([]);
@@ -761,52 +777,69 @@ export default function App() {
         </div>
         
         <nav className="flex-1 overflow-y-auto w-full p-4 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-200 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-slate-300">
-          {menuCategories.map((category, idx) => (
-            <div key={category.title} className={idx > 0 ? "mt-6" : ""}>
-              <h3 className="text-[10px] font-bold text-slate-400 tracking-wider uppercase mb-2 px-3">
-                {category.title}
-              </h3>
-              <div className="space-y-0.5">
-                {category.items.map(item => {
-                  const isActive = activeTab === item.id;
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => {
-                        if (item.id === 'docs') {
-                          window.open('https://drive.google.com/drive/folders/1A9Oms1S0tbJEWD3QfEivyDFj4FCPjTc9?usp=drive_link', '_blank');
-                        } else {
-                          setActiveTab(item.id);
-                        }
-                      }}
-                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] transition-all duration-200 group relative outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
-                        isActive 
-                          ? 'bg-indigo-50/80 text-indigo-700 font-semibold shadow-sm' 
-                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
-                      }`}
-                    >
-                      {isActive && (
-                        <div className="absolute left-0 top-1.5 bottom-1.5 w-1 bg-indigo-600 rounded-r-full shadow-[0_0_8px_rgba(79,70,229,0.5)]"></div>
-                      )}
-                      <div className={`${isActive ? 'text-indigo-600' : 'text-slate-400 group-hover:text-slate-600'} transition-colors duration-200`}>
-                        {item.icon}
-                      </div>
-                      {item.label}
-                      {(item.badge ?? 0) > 0 && (
-                        <span className={`ml-auto py-0.5 px-2 rounded-full text-[10px] font-bold shadow-sm ${
-                          isActive 
-                            ? 'bg-indigo-200 text-indigo-800' 
-                            : 'bg-red-100 text-red-600'
-                        }`}>
-                          {item.badge}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
+          {menuCategories.map((category, idx) => {
+            const isCollapsed = collapsedCategories.has(category.title);
+            const hasActiveItem = category.items.some(item => item.id === activeTab);
+            return (
+              <div key={category.title} className={idx > 0 ? "mt-3" : ""}>
+                <button
+                  onClick={() => toggleCategory(category.title)}
+                  className="w-full flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-slate-50 transition-colors group"
+                >
+                  <h3 className="text-[10px] font-bold text-slate-400 tracking-wider uppercase group-hover:text-slate-600 transition-colors">
+                    {category.title}
+                  </h3>
+                  <div className="flex items-center gap-1.5">
+                    {isCollapsed && hasActiveItem && (
+                      <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                    )}
+                    <ChevronRight className={`w-3 h-3 text-slate-400 transition-transform duration-200 ${isCollapsed ? '' : 'rotate-90'}`} />
+                  </div>
+                </button>
+                <div className={`overflow-hidden transition-all duration-200 ease-in-out ${isCollapsed ? 'max-h-0 opacity-0' : 'max-h-[500px] opacity-100 mt-1'}`}>
+                  <div className="space-y-0.5">
+                    {category.items.map(item => {
+                      const isActive = activeTab === item.id;
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={() => {
+                            if (item.id === 'docs') {
+                              window.open('https://drive.google.com/drive/folders/1A9Oms1S0tbJEWD3QfEivyDFj4FCPjTc9?usp=drive_link', '_blank');
+                            } else {
+                              setActiveTab(item.id);
+                            }
+                          }}
+                          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] transition-all duration-200 group relative outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+                            isActive
+                              ? 'bg-indigo-50/80 text-indigo-700 font-semibold shadow-sm'
+                              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
+                          }`}
+                        >
+                          {isActive && (
+                            <div className="absolute left-0 top-1.5 bottom-1.5 w-1 bg-indigo-600 rounded-r-full shadow-[0_0_8px_rgba(79,70,229,0.5)]"></div>
+                          )}
+                          <div className={`${isActive ? 'text-indigo-600' : 'text-slate-400 group-hover:text-slate-600'} transition-colors duration-200`}>
+                            {item.icon}
+                          </div>
+                          {item.label}
+                          {(item.badge ?? 0) > 0 && (
+                            <span className={`ml-auto py-0.5 px-2 rounded-full text-[10px] font-bold shadow-sm ${
+                              isActive
+                                ? 'bg-indigo-200 text-indigo-800'
+                                : 'bg-red-100 text-red-600'
+                            }`}>
+                              {item.badge}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </nav>
         
         <div className="p-4 border-t border-slate-100 bg-white min-h-[68px] flex flex-col gap-2 shrink-0">
