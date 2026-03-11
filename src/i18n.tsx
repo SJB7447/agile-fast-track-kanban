@@ -194,7 +194,30 @@ export const translations: Translations = {
     'install.benefit1': '홈 화면에서 바로 실행',
     'install.benefit2': '전체 화면 앱 경험',
     'install.benefit3': '실시간 푸시 알림 수신',
-    'install.benefit4': '오프라인에서도 기본 기능 사용'
+    'install.benefit4': '오프라인에서도 기본 기능 사용',
+
+    // Tutorial
+    'tutorial.reopen': '튜토리얼 다시보기',
+    'tutorial.reopenDesc': '앱 사용법을 다시 확인합니다',
+    'tutorial.skip': '건너뛰기',
+    'tutorial.next': '다음',
+    'tutorial.start': '시작하기',
+    'tutorial.welcome.title': 'Fast-Track Agile에 오신 것을 환영합니다!',
+    'tutorial.welcome.desc': '팀의 업무를 한눈에 관리하고, 실시간으로 협업할 수 있는 칸반 워크스페이스입니다.',
+    'tutorial.welcome.sub': '팀 협업 워크스페이스',
+    'tutorial.sidebar.title': '사이드바 네비게이션',
+    'tutorial.sidebar.desc': '왼쪽 사이드바에서 다양한 기능에 접근하세요. 카테고리를 클릭하면 접고 펼 수 있습니다.',
+    'tutorial.board.title': '칸반 상태 보드',
+    'tutorial.board.desc': '작업을 To Do → In Progress → Done 단계로 관리하세요. 한눈에 팀의 진행 상황을 파악할 수 있습니다.',
+    'tutorial.task.title': '작업 카드',
+    'tutorial.task.desc': '각 작업에는 우선순위, 담당자, 마감일이 표시됩니다. 카드를 클릭하면 상세 정보를 편집할 수 있습니다.',
+    'tutorial.task.example': 'UI 디자인 업데이트',
+    'tutorial.drag.title': '드래그 & 드롭',
+    'tutorial.drag.desc': '작업 카드를 드래그하여 다른 상태 칼럼으로 옮기세요. 상태가 자동으로 업데이트됩니다.',
+    'tutorial.notif.title': '알림 & 앱 설치',
+    'tutorial.notif.desc': '프로필을 클릭하면 푸시 알림 설정과 앱 설치를 할 수 있습니다. 중요한 변경 사항을 실시간으로 받아보세요.',
+    'tutorial.notif.example1': '실시간 푸시 알림 설정',
+    'tutorial.notif.example2': '홈 화면에 앱 설치'
   },
   en: {
     // Sidebar Main Categories
@@ -381,7 +404,30 @@ export const translations: Translations = {
     'install.benefit1': 'Launch directly from home screen',
     'install.benefit2': 'Full-screen app experience',
     'install.benefit3': 'Receive real-time push notifications',
-    'install.benefit4': 'Basic features available offline'
+    'install.benefit4': 'Basic features available offline',
+
+    // Tutorial
+    'tutorial.reopen': 'View Tutorial',
+    'tutorial.reopenDesc': 'Learn how to use the app',
+    'tutorial.skip': 'Skip',
+    'tutorial.next': 'Next',
+    'tutorial.start': 'Get Started',
+    'tutorial.welcome.title': 'Welcome to Fast-Track Agile!',
+    'tutorial.welcome.desc': 'A Kanban workspace to manage your team\'s work at a glance and collaborate in real-time.',
+    'tutorial.welcome.sub': 'Team Collaboration Workspace',
+    'tutorial.sidebar.title': 'Sidebar Navigation',
+    'tutorial.sidebar.desc': 'Access various features from the left sidebar. Click on categories to collapse or expand them.',
+    'tutorial.board.title': 'Kanban Status Board',
+    'tutorial.board.desc': 'Manage tasks through To Do → In Progress → Done stages. See your team\'s progress at a glance.',
+    'tutorial.task.title': 'Task Cards',
+    'tutorial.task.desc': 'Each task shows priority, assignee, and due date. Click a card to edit its details.',
+    'tutorial.task.example': 'Update UI Design',
+    'tutorial.drag.title': 'Drag & Drop',
+    'tutorial.drag.desc': 'Drag task cards to move them to different status columns. The status updates automatically.',
+    'tutorial.notif.title': 'Notifications & Install',
+    'tutorial.notif.desc': 'Click your profile to set up push notifications and install the app. Get real-time updates on important changes.',
+    'tutorial.notif.example1': 'Real-time push notifications',
+    'tutorial.notif.example2': 'Install app on home screen'
   }
 };
 

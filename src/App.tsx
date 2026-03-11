@@ -70,6 +70,11 @@ import {
   ToggleRight,
   Menu,
   PanelLeftClose,
+  HelpCircle,
+  Rocket,
+  MousePointerClick,
+  GripHorizontal,
+  Layers,
 } from 'lucide-react';
 
 // Firebase config from environment variables
@@ -102,6 +107,35 @@ export default function App() {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [profilePanel, setProfilePanel] = useState<'main' | 'notifications' | 'install'>('main');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+
+  // Tutorial State
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [tutorialStep, setTutorialStep] = useState(0);
+
+  // Show tutorial on first login
+  useEffect(() => {
+    if (user && isAuthReady) {
+      const seen = localStorage.getItem('tutorial_completed');
+      if (!seen) {
+        setShowTutorial(true);
+        setTutorialStep(0);
+      }
+    }
+  }, [user, isAuthReady]);
+
+  const closeTutorial = (markDone: boolean) => {
+    setShowTutorial(false);
+    setTutorialStep(0);
+    if (markDone) {
+      localStorage.setItem('tutorial_completed', 'true');
+    }
+  };
+
+  const reopenTutorial = () => {
+    setTutorialStep(0);
+    setShowTutorial(true);
+    setShowProfileMenu(false);
+  };
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(() => {
     try {
       const saved = localStorage.getItem('sidebar_collapsed');
@@ -941,6 +975,20 @@ export default function App() {
                             </p>
                           </div>
                           <ChevronRight className="w-4 h-4 text-slate-400" />
+                        </button>
+
+                        {/* Tutorial */}
+                        <button
+                          onClick={reopenTutorial}
+                          className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-slate-50 transition-colors"
+                        >
+                          <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
+                            <HelpCircle className="w-4 h-4 text-amber-600" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[13px] font-semibold text-slate-800">{t('tutorial.reopen')}</p>
+                            <p className="text-[11px] text-slate-500">{t('tutorial.reopenDesc')}</p>
+                          </div>
                         </button>
 
                         <div className="my-1.5 mx-3 border-t border-slate-100" />
@@ -2402,6 +2450,189 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Tutorial Modal */}
+      {showTutorial && (() => {
+        const steps = [
+          {
+            icon: <Rocket className="w-8 h-8 text-indigo-500" />,
+            title: t('tutorial.welcome.title'),
+            desc: t('tutorial.welcome.desc'),
+            visual: (
+              <div className="flex items-center justify-center gap-3 py-4">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-lg">
+                  <LayoutDashboard className="w-6 h-6" />
+                </div>
+                <div className="text-left">
+                  <div className="text-lg font-extrabold text-slate-800">Fast-Track Agile</div>
+                  <div className="text-xs text-slate-500 font-medium">{t('tutorial.welcome.sub')}</div>
+                </div>
+              </div>
+            ),
+          },
+          {
+            icon: <Layers className="w-8 h-8 text-blue-500" />,
+            title: t('tutorial.sidebar.title'),
+            desc: t('tutorial.sidebar.desc'),
+            visual: (
+              <div className="space-y-2 py-2">
+                {[t('nav.companyHome'), t('nav.projectCenter'), t('nav.feedbackCenter'), t('nav.aiAutomation')].map((name, i) => (
+                  <div key={i} className="flex items-center gap-2 px-3 py-2 bg-slate-50 rounded-lg border border-slate-100">
+                    <ChevronRight className="w-3 h-3 text-slate-400" />
+                    <span className="text-[12px] font-semibold text-slate-600">{name}</span>
+                  </div>
+                ))}
+              </div>
+            ),
+          },
+          {
+            icon: <LayoutDashboard className="w-8 h-8 text-emerald-500" />,
+            title: t('tutorial.board.title'),
+            desc: t('tutorial.board.desc'),
+            visual: (
+              <div className="flex gap-2 py-2 overflow-hidden">
+                {['To Do', 'In Progress', 'Done'].map((col, i) => (
+                  <div key={i} className="flex-1 bg-slate-50 rounded-lg border border-slate-100 p-2">
+                    <div className="text-[10px] font-bold text-slate-500 mb-1.5">{col}</div>
+                    <div className="space-y-1">
+                      {[0, 1].map(j => (
+                        <div key={j} className={`h-6 rounded ${i === 0 && j === 0 ? 'bg-indigo-100 border border-indigo-200' : 'bg-slate-100 border border-slate-200'}`} />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ),
+          },
+          {
+            icon: <MousePointerClick className="w-8 h-8 text-orange-500" />,
+            title: t('tutorial.task.title'),
+            desc: t('tutorial.task.desc'),
+            visual: (
+              <div className="py-2">
+                <div className="bg-white border-2 border-indigo-200 rounded-xl p-3 shadow-sm">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 bg-orange-100 text-orange-700 rounded border border-orange-200">High</span>
+                    <span className="text-[11px] font-bold text-slate-800">{t('tutorial.task.example')}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1">
+                      <div className="w-4 h-4 rounded-full bg-indigo-100 text-[8px] text-indigo-700 flex items-center justify-center font-bold">J</div>
+                      <span className="text-[10px] text-slate-500">John</span>
+                    </div>
+                    <span className="text-[10px] text-slate-400">Mar 15</span>
+                  </div>
+                </div>
+              </div>
+            ),
+          },
+          {
+            icon: <GripHorizontal className="w-8 h-8 text-purple-500" />,
+            title: t('tutorial.drag.title'),
+            desc: t('tutorial.drag.desc'),
+            visual: (
+              <div className="flex items-center gap-2 py-4 justify-center">
+                <div className="w-16 h-10 bg-blue-100 border border-blue-200 rounded-lg flex items-center justify-center">
+                  <span className="text-[9px] font-bold text-blue-600">In Progress</span>
+                </div>
+                <div className="flex items-center gap-0.5 text-slate-400">
+                  <div className="w-4 h-0.5 bg-slate-300 rounded" />
+                  <ChevronRight className="w-4 h-4" />
+                </div>
+                <div className="w-16 h-10 bg-emerald-100 border-2 border-emerald-300 rounded-lg flex items-center justify-center shadow-sm">
+                  <span className="text-[9px] font-bold text-emerald-600">Done</span>
+                </div>
+              </div>
+            ),
+          },
+          {
+            icon: <Bell className="w-8 h-8 text-rose-500" />,
+            title: t('tutorial.notif.title'),
+            desc: t('tutorial.notif.desc'),
+            visual: (
+              <div className="py-2 space-y-2">
+                <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 rounded-lg border border-indigo-100">
+                  <BellRing className="w-4 h-4 text-indigo-500" />
+                  <span className="text-[11px] font-semibold text-indigo-700">{t('tutorial.notif.example1')}</span>
+                </div>
+                <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 rounded-lg border border-emerald-100">
+                  <Download className="w-4 h-4 text-emerald-500" />
+                  <span className="text-[11px] font-semibold text-emerald-700">{t('tutorial.notif.example2')}</span>
+                </div>
+              </div>
+            ),
+          },
+        ];
+
+        const step = steps[tutorialStep];
+        const isLast = tutorialStep === steps.length - 1;
+
+        return (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4 z-[60]">
+            <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md overflow-hidden animate-[fadeIn_0.3s_ease-out_forwards]">
+              {/* Progress Bar */}
+              <div className="h-1 bg-slate-100">
+                <div
+                  className="h-full bg-indigo-500 transition-all duration-500 ease-out rounded-full"
+                  style={{ width: `${((tutorialStep + 1) / steps.length) * 100}%` }}
+                />
+              </div>
+
+              {/* Content */}
+              <div className="p-6 sm:p-8 text-center">
+                <div className="flex justify-center mb-4">
+                  <div className="w-16 h-16 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center">
+                    {step.icon}
+                  </div>
+                </div>
+                <h2 className="text-xl font-extrabold text-slate-900 mb-2">{step.title}</h2>
+                <p className="text-sm text-slate-500 font-medium leading-relaxed">{step.desc}</p>
+
+                {/* Visual */}
+                <div className="mt-4 mx-auto max-w-[280px]">
+                  {step.visual}
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="px-6 sm:px-8 pb-6 sm:pb-8 flex items-center justify-between gap-3">
+                <div className="flex gap-1.5">
+                  {steps.map((_, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setTutorialStep(i)}
+                      className={`w-2 h-2 rounded-full transition-all duration-300 ${i === tutorialStep ? 'bg-indigo-500 w-6' : 'bg-slate-200 hover:bg-slate-300'}`}
+                    />
+                  ))}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => closeTutorial(true)}
+                    className="px-3 py-2 text-[13px] font-medium text-slate-500 hover:text-slate-700 transition-colors"
+                  >
+                    {t('tutorial.skip')}
+                  </button>
+                  {isLast ? (
+                    <button
+                      onClick={() => closeTutorial(true)}
+                      className="px-5 py-2.5 bg-indigo-600 text-white text-[13px] font-bold rounded-xl hover:bg-indigo-700 transition-colors shadow-sm"
+                    >
+                      {t('tutorial.start')}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setTutorialStep(prev => prev + 1)}
+                      className="px-5 py-2.5 bg-indigo-600 text-white text-[13px] font-bold rounded-xl hover:bg-indigo-700 transition-colors shadow-sm flex items-center gap-1"
+                    >
+                      {t('tutorial.next')} <ChevronRight className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
