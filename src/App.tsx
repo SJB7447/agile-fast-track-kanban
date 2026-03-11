@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { DriveFile, getOrCreateAppFolder, listFiles, uploadFile, deleteFile, formatFileSize, getFileTypeIcon } from './driveService';
 import { Task, Status, Priority } from './types';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from 'firebase/auth';
@@ -63,6 +64,14 @@ export default function App() {
   const [calendarEvents, setCalendarEvents] = useState<any[]>([]);
   const [isLoadingEvents, setIsLoadingEvents] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(new Date());
+
+  // Google Drive State
+  const [driveFolderId, setDriveFolderId] = useState<string | null>(null);
+  const [driveFiles, setDriveFiles] = useState<DriveFile[]>([]);
+  const [isDriveLoading, setIsDriveLoading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Test Firestore Connection
   useEffect(() => {
@@ -164,10 +173,65 @@ export default function App() {
   const activeMenu = menuCategories.flatMap(c => c.items).find(i => i.id === activeTab);
   const activeMenuLabel = activeMenu?.label || 'Dashboard';
 
+  // Google Drive: load files when docs tab selected
+  const loadDriveFiles = useCallback(async () => {
+    if (!googleAccessToken) return;
+    setIsDriveLoading(true);
+    try {
+      const fId = driveFolderId || await getOrCreateAppFolder(googleAccessToken);
+      if (!driveFolderId) setDriveFolderId(fId);
+      const files = await listFiles(googleAccessToken, fId);
+      setDriveFiles(files);
+    } catch (e: any) {
+      if (e.message === 'TOKEN_EXPIRED') {
+        setGoogleAccessToken(null);
+      }
+      console.error('Drive error:', e);
+    } finally {
+      setIsDriveLoading(false);
+    }
+  }, [googleAccessToken, driveFolderId]);
+
+  useEffect(() => {
+    if (activeTab === 'docs' && googleAccessToken) {
+      loadDriveFiles();
+    }
+  }, [activeTab, googleAccessToken, loadDriveFiles]);
+
+  const handleFileUpload = async (files: FileList | null) => {
+    if (!files || !googleAccessToken) return;
+    setIsUploading(true);
+    try {
+      const fId = driveFolderId || await getOrCreateAppFolder(googleAccessToken);
+      if (!driveFolderId) setDriveFolderId(fId);
+      for (const file of Array.from(files)) {
+        await uploadFile(googleAccessToken, fId, file);
+      }
+      await loadDriveFiles();
+    } catch (e: any) {
+      if (e.message === 'TOKEN_EXPIRED') setGoogleAccessToken(null);
+      console.error('Upload error:', e);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleDeleteFile = async (fileId: string, fileName: string) => {
+    if (!googleAccessToken || !confirm(`"${fileName}" 파일을 삭제하시겠습니까?`)) return;
+    try {
+      await deleteFile(googleAccessToken, fileId);
+      setDriveFiles(prev => prev.filter(f => f.id !== fileId));
+    } catch (e: any) {
+      if (e.message === 'TOKEN_EXPIRED') setGoogleAccessToken(null);
+      console.error('Delete error:', e);
+    }
+  };
+
   const handleLogin = async () => {
     try {
       const provider = new GoogleAuthProvider();
       provider.addScope('https://www.googleapis.com/auth/calendar.readonly');
+      provider.addScope('https://www.googleapis.com/auth/drive.file');
       const result = await signInWithPopup(auth, provider);
       const credential = GoogleAuthProvider.credentialFromResult(result);
       if (credential?.accessToken) {
@@ -742,8 +806,129 @@ export default function App() {
             </div>
           )}
 
+          {/* Google Drive - 문서 바로가기 */}
+          {activeTab === 'docs' && (
+            <div className="max-w-5xl mx-auto space-y-6">
+              {!googleAccessToken ? (
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-12 text-center">
+                  <div className="w-16 h-16 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <FileText className="w-8 h-8 text-indigo-600" />
+                  </div>
+                  <h4 className="text-lg font-medium text-slate-900 mb-2">Google Drive 연결</h4>
+                  <p className="text-slate-500 mb-6 max-w-md mx-auto">
+                    Google Drive에 파일을 저장하고 팀과 공유하세요. 로그인 시 Drive 접근 권한이 필요합니다.
+                  </p>
+                  <button onClick={handleLogin} className="inline-flex items-center gap-2 bg-indigo-600 text-white px-6 py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition-colors shadow-sm">
+                    <ExternalLink className="w-4 h-4" /> Drive 연결하기
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {/* Upload area */}
+                  <div
+                    onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+                    onDragLeave={() => setIsDragOver(false)}
+                    onDrop={(e) => { e.preventDefault(); setIsDragOver(false); handleFileUpload(e.dataTransfer.files); }}
+                    className={`bg-white rounded-xl border-2 border-dashed p-8 text-center transition-all cursor-pointer hover:border-indigo-300 hover:bg-indigo-50/30 ${
+                      isDragOver ? 'border-indigo-500 bg-indigo-50/50 scale-[1.01]' : 'border-slate-200'
+                    }`}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => handleFileUpload(e.target.files)}
+                    />
+                    <div className="w-12 h-12 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                      {isUploading ? (
+                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-600"></div>
+                      ) : (
+                        <Plus className="w-6 h-6 text-indigo-600" />
+                      )}
+                    </div>
+                    <p className="text-sm font-semibold text-slate-700">
+                      {isUploading ? '업로드 중...' : '파일을 드래그하거나 클릭하여 업로드'}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-1">Google Drive "Fast-Track Agile" 폴더에 저장됩니다</p>
+                  </div>
+
+                  {/* File list */}
+                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="p-4 border-b border-slate-200 bg-slate-50/80 flex justify-between items-center">
+                      <h3 className="font-semibold text-slate-800 flex items-center gap-2">
+                        <FileText className="w-5 h-5 text-indigo-500" />
+                        파일 목록
+                        <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-bold">{driveFiles.length}</span>
+                      </h3>
+                      <button
+                        onClick={loadDriveFiles}
+                        className="text-sm text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-1 transition-colors"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" /> 새로고침
+                      </button>
+                    </div>
+
+                    {isDriveLoading ? (
+                      <div className="p-12 flex justify-center">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+                      </div>
+                    ) : driveFiles.length === 0 ? (
+                      <div className="p-12 text-center text-slate-400">
+                        <FileText className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                        <p className="font-medium">아직 업로드된 파일이 없습니다</p>
+                        <p className="text-xs mt-1">위 영역을 클릭하여 파일을 업로드해 보세요</p>
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-slate-100">
+                        {driveFiles.map(file => (
+                          <div key={file.id} className="flex items-center gap-4 px-5 py-3.5 hover:bg-slate-50 transition-colors group">
+                            <span className="text-xl w-8 text-center flex-shrink-0">{getFileTypeIcon(file.mimeType)}</span>
+                            <div className="flex-1 min-w-0">
+                              <a
+                                href={file.webViewLink || '#'}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-sm font-medium text-slate-800 hover:text-indigo-600 truncate block transition-colors"
+                              >
+                                {file.name}
+                              </a>
+                              <div className="flex items-center gap-3 text-xs text-slate-400 mt-0.5">
+                                <span>{formatFileSize(file.size)}</span>
+                                <span>{new Date(file.modifiedTime).toLocaleDateString('ko-KR', { year: 'numeric', month: 'short', day: 'numeric' })}</span>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <a
+                                href={file.webViewLink || '#'}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-1.5 rounded-md hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 transition-colors"
+                                title="Google Drive에서 열기"
+                              >
+                                <ExternalLink className="w-4 h-4" />
+                              </a>
+                              <button
+                                onClick={() => handleDeleteFile(file.id, file.name)}
+                                className="p-1.5 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors"
+                                title="삭제"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           {/* Coming Soon state for non-implemented paths */}
-          {!['board', 'sync', 'issues', 'calendar'].includes(activeTab) && (
+          {!['board', 'sync', 'issues', 'calendar', 'docs'].includes(activeTab) && (
             <div className="flex flex-col items-center justify-center min-h-[60vh] text-center opacity-0 animate-[fadeIn_0.5s_ease-out_forwards]">
               <div className="w-24 h-24 mb-6 relative">
                  <div className="absolute inset-0 bg-indigo-100 rounded-full animate-ping opacity-60 duration-1000"></div>
