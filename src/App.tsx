@@ -5,7 +5,7 @@ import { Task, Status, Priority, Comment } from './types';
 import { manualContent, Language } from './manualContent';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, getDocFromServer } from 'firebase/firestore';
+import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, query, orderBy, limit } from 'firebase/firestore';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import {
   NotificationSettings,
@@ -289,20 +289,6 @@ export default function App() {
       setIsAiLoading(false);
     }
   };
-  // Test Firestore Connection
-  useEffect(() => {
-    async function testConnection() {
-      try {
-        await getDocFromServer(doc(db, 'test', 'connection'));
-      } catch (error) {
-        if(error instanceof Error && error.message.includes('the client is offline')) {
-          console.error("Please check your Firebase configuration.");
-        }
-      }
-    }
-    testConnection();
-  }, []);
-
   // Auth Listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -316,22 +302,33 @@ export default function App() {
   const isInitialTaskLoad = useRef(true);
   const isInitialCommentLoad = useRef(true);
   const prevTasksRef = useRef<Task[]>([]);
+  const notifSettingsRef = useRef(notifSettings);
+  const prevCommentCountRef = useRef(0);
+
+  // Keep ref in sync without triggering re-subscription
+  useEffect(() => {
+    notifSettingsRef.current = notifSettings;
+  }, [notifSettings]);
 
   // Firestore Tasks and Comments Listener (with real-time notifications)
+  // deps: only [isAuthReady, user] to avoid re-subscribing on settings change
   useEffect(() => {
     if (!isAuthReady || !user) return;
 
+    // Reset initial load flags on re-subscribe
+    isInitialTaskLoad.current = true;
+    isInitialCommentLoad.current = true;
+
     const unsubscribeTasks = onSnapshot(collection(db, 'tasks'), (snapshot) => {
-      const newTasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Task));
+      const newTasks = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Task));
 
       // Send notifications for changes (skip initial load)
-      if (!isInitialTaskLoad.current && notifSettings.enabled) {
+      if (!isInitialTaskLoad.current && notifSettingsRef.current.enabled) {
         const prevIds = new Set(prevTasksRef.current.map(t => t.id));
         const prevMap = new Map<string, Task>(prevTasksRef.current.map(t => [t.id, t]));
 
         for (const task of newTasks) {
           if (!prevIds.has(task.id)) {
-            // New task
             notifyTaskCreated(task.title, task.assignee);
           } else {
             const prev = prevMap.get(task.id);
@@ -356,14 +353,14 @@ export default function App() {
       console.error("Firestore Tasks Error:", error);
     });
 
-    const unsubscribeComments = onSnapshot(collection(db, 'comments'), (snapshot) => {
-      const newComments = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Comment));
-      newComments.sort((a,b) => b.createdAt - a.createdAt);
+    // Limit comments to latest 50 to reduce reads
+    const commentsQuery = query(collection(db, 'comments'), orderBy('createdAt', 'desc'), limit(50));
+    const unsubscribeComments = onSnapshot(commentsQuery, (snapshot) => {
+      const newComments = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Comment));
 
       // Notify for new comments (skip initial load)
-      if (!isInitialCommentLoad.current && notifSettings.enabled) {
-        const prevCount = comments.length;
-        if (newComments.length > prevCount) {
+      if (!isInitialCommentLoad.current && notifSettingsRef.current.enabled) {
+        if (newComments.length > prevCommentCountRef.current) {
           const newest = newComments[0];
           if (newest && newest.authorId !== user.uid) {
             notifyCommentAdded(newest.authorName);
@@ -371,6 +368,7 @@ export default function App() {
         }
       }
       isInitialCommentLoad.current = false;
+      prevCommentCountRef.current = newComments.length;
       setComments(newComments);
     }, (error) => {
       console.error("Firestore Comments Error:", error);
@@ -380,7 +378,7 @@ export default function App() {
       unsubscribeTasks();
       unsubscribeComments();
     };
-  }, [isAuthReady, user, notifSettings.enabled]);
+  }, [isAuthReady, user]);
 
   const handleCommentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

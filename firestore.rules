@@ -87,5 +87,18 @@ service cloud.firestore {
       // Only the creator can delete their task
       allow delete: if isCreator();
     }
+
+    // Comments: authenticated users can read/create, only author can delete
+    match /comments/{commentId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() &&
+                    request.resource.data.authorId == request.auth.uid &&
+                    request.resource.data.text is string &&
+                    request.resource.data.text.size() >= 1 &&
+                    request.resource.data.text.size() <= 2000 &&
+                    request.resource.data.createdAt is number;
+      allow delete: if isAuthenticated() && resource.data.authorId == request.auth.uid;
+      allow update: if false;
+    }
   }
 }
