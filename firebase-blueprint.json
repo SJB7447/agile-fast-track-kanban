@@ -1,0 +1,26 @@
+{
+  "entities": {
+    "Task": {
+      "title": "Task",
+      "description": "A task in the Kanban board",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "description": "Task title" },
+        "description": { "type": "string", "description": "Task description" },
+        "assignee": { "type": "string", "description": "Task assignee name" },
+        "dueDate": { "type": "string", "description": "Due date (YYYY-MM-DD)" },
+        "priority": { "type": "string", "enum": ["High", "Medium", "Low"] },
+        "status": { "type": "string", "enum": ["To Do", "In Progress", "Blocked", "Done"] },
+        "createdAt": { "type": "number", "description": "Timestamp" },
+        "createdBy": { "type": "string", "description": "User ID of creator" }
+      },
+      "required": ["title", "description", "assignee", "dueDate", "priority", "status", "createdAt", "createdBy"]
+    }
+  },
+  "firestore": {
+    "/tasks/{taskId}": {
+      "schema": { "$ref": "#/entities/Task" },
+      "description": "Shared tasks collection for the team"
+    }
+  }
+}

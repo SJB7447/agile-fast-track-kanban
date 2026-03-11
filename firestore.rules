@@ -1,0 +1,91 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: tasks
+    // Document ID: auto-generated
+    // Fields:
+    //   - title: string (required, max 100 chars)
+    //   - description: string (required, max 1000 chars)
+    //   - assignee: string (required, max 50 chars)
+    //   - dueDate: string (required, YYYY-MM-DD format)
+    //   - priority: string (required, enum: 'High', 'Medium', 'Low')
+    //   - status: string (required, enum: 'To Do', 'In Progress', 'Blocked', 'Done')
+    //   - createdAt: number (required, immutable)
+    //   - createdBy: string (required, immutable, must match auth uid on create)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidString(field, minLen, maxLen) {
+      return request.resource.data[field] is string &&
+             request.resource.data[field].size() >= minLen &&
+             request.resource.data[field].size() <= maxLen;
+    }
+
+    function isValidDateString(dateStr) {
+      return dateStr is string &&
+        dateStr.matches("^\\d{4}-\\d{2}-\\d{2}$");
+    }
+
+    function isValidTask(data) {
+      return hasOnlyAllowedFields(['title', 'description', 'assignee', 'dueDate', 'priority', 'status', 'createdAt', 'createdBy']) &&
+             isValidString('title', 1, 100) &&
+             isValidString('description', 0, 1000) &&
+             isValidString('assignee', 0, 50) &&
+             isValidDateString(data.dueDate) &&
+             data.priority in ['High', 'Medium', 'Low'] &&
+             data.status in ['To Do', 'In Progress', 'Blocked', 'Done'] &&
+             data.createdAt is number &&
+             data.createdBy is string;
+    }
+
+    function isCreator() {
+      return isAuthenticated() && request.auth.uid == resource.data.createdBy;
+    }
+
+    function createdByMatchesAuth() {
+      return request.resource.data.createdBy == request.auth.uid;
+    }
+
+    function immutableFieldsUnchanged() {
+      return request.resource.data.createdAt == resource.data.createdAt &&
+             request.resource.data.createdBy == resource.data.createdBy;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+    match /tasks/{taskId} {
+      // Allow any authenticated user to read tasks (team board)
+      allow read: if isAuthenticated();
+      
+      // Allow any authenticated user to create a task, but they must be the creator
+      allow create: if isAuthenticated() && 
+                    isValidTask(request.resource.data) && 
+                    createdByMatchesAuth();
+                    
+      // Allow any authenticated user to update tasks (since it's a shared team board),
+      // but they cannot change the creator or creation time.
+      allow update: if isAuthenticated() && 
+                    isValidTask(request.resource.data) && 
+                    immutableFieldsUnchanged();
+                    
+      // Only the creator can delete their task
+      allow delete: if isCreator();
+    }
+  }
+}
