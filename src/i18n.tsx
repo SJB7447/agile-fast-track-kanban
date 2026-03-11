@@ -128,7 +128,30 @@ export const translations: Translations = {
     'manual.reqRules': '작업 요청 규칙',
     'manual.meetRules': '회의 진행 규칙',
     'manual.fileRules': '파일 관리 규칙',
-    'manual.deployCheck': '배포/제출 체크리스트'
+    'manual.deployCheck': '배포/제출 체크리스트',
+
+    // AI Automation
+    'ai.meeting.title': '회의록 요약 (AI)',
+    'ai.action.title': '액션아이템 추출 (AI)',
+    'ai.inputPlaceholder': '분석할 텍스트나 회의록의 내용을 여기에 붙여넣어 주세요...',
+    'ai.summarizeBtn': '요약하기',
+    'ai.extractBtn': '액션 추출하기',
+    'ai.resultSummary': 'AI 요약 결과',
+    'ai.resultAction': 'AI 추출 액션아이템',
+    'ai.weekly.title': '주간 업무 요약 (AI)',
+    'ai.weekly.desc': '이번 주 생성된 업무 통계 요약입니다.',
+    'ai.weekly.noTasks': '이번 주 완료된 태스크가 없습니다.',
+    'ai.weekly.summary1': '이번 주 총',
+    'ai.weekly.summary2': '건의 작업이 정상적으로 완료되었습니다.',
+    'ai.weekly.reportTitle': 'AI 주간 리포트',
+    'ai.delay.title': '일정 지연 경고 (AI)',
+    'ai.delay.desc': 'AI 위험 감지: 다음 태스크들의 마감일이 지연되고 있습니다.',
+    'ai.delay.noDelays': '현재 지연된 태스크가 없습니다. 아주 좋습니다!',
+    'ai.blocker.title': '막힌 이슈 알림 (AI)',
+    'ai.blocker.desc': 'AI 상태 감지: 다음 태스크들이 차단(Blocked) 상태입니다.',
+    'ai.blocker.noBlockers': '현재 진행을 막고 있는 이슈가 없습니다.',
+    'ai.blocker.suggestion': 'AI 제안: 담당자와 신속히 회의를 잡고, 발생한 병목 현상의 원인을 파악하세요.',
+    'ai.analyzing': 'AI 분석 중...'
   },
   en: {
     // Sidebar Main Categories
@@ -249,7 +272,30 @@ export const translations: Translations = {
     'manual.reqRules': 'Request Rules',
     'manual.meetRules': 'Meeting Rules',
     'manual.fileRules': 'File Guidelines',
-    'manual.deployCheck': 'Deploy Checklist'
+    'manual.deployCheck': 'Deploy Checklist',
+
+    // AI Automation
+    'ai.meeting.title': 'Meeting Summaries (AI)',
+    'ai.action.title': 'Action Items Extraction (AI)',
+    'ai.inputPlaceholder': 'Paste the text or meeting notes you want to analyze here...',
+    'ai.summarizeBtn': 'Summarize',
+    'ai.extractBtn': 'Extract Actions',
+    'ai.resultSummary': 'AI Summary Result',
+    'ai.resultAction': 'AI Extracted Action Items',
+    'ai.weekly.title': 'Weekly Summary (AI)',
+    'ai.weekly.desc': 'Statistical summary of tasks completed this week.',
+    'ai.weekly.noTasks': 'No tasks were completed this week.',
+    'ai.weekly.summary1': 'A total of',
+    'ai.weekly.summary2': 'tasks were successfully completed this week.',
+    'ai.weekly.reportTitle': 'AI Weekly Report',
+    'ai.delay.title': 'Delay Warnings (AI)',
+    'ai.delay.desc': 'AI Risk Alert: The following tasks are overdue.',
+    'ai.delay.noDelays': 'There are no delayed tasks currently. Great job!',
+    'ai.blocker.title': 'Blocked Alerts (AI)',
+    'ai.blocker.desc': 'AI Status Alert: The following tasks are currently blocked.',
+    'ai.blocker.noBlockers': 'There are no blocking issues currently.',
+    'ai.blocker.suggestion': 'AI Suggestion: Schedule a quick sync with the assignee to identify and resolve the bottleneck.',
+    'ai.analyzing': 'AI is analyzing...'
   }
 };
 

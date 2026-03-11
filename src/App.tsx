@@ -99,6 +99,39 @@ export default function App() {
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // AI Automation State
+  const [aiInputText, setAiInputText] = useState("");
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [aiResult, setAiResult] = useState<any>(null);
+
+  const handleAiAction = (type: 'meeting' | 'action') => {
+    if (!aiInputText.trim()) return;
+    setIsAiLoading(true);
+    setAiResult(null);
+    
+    setTimeout(() => {
+      setIsAiLoading(false);
+      if (type === 'meeting') {
+        setAiResult({
+          type: 'meeting',
+          summary: [
+            "진행 상황 보고서: 랜딩 페이지 V1 기획안 공유 및 리뷰 진행",
+            "주요 안건: A/B 테스트 기획을 위한 핵심 성과 지표(KPI) 설정",
+            "결정 사항: 다음 주 수요일까지 A/B 테스트 프로토타입 디자인 완료 후 개발팀 전달"
+          ]
+        });
+      } else {
+        setAiResult({
+          type: 'action',
+          actions: [
+            "[개발] 로그인 시스템 구글 Auth 연동 및 테스트 진행 (담당: 프론트엔드 파트)",
+            "[디자인] 랜딩 페이지 영웅 배너 에셋 수정 및 최적화 (담당: 디자인 파트)",
+            "[기획] A/B 테스트 결과 리포트 대시보드 기획안 작성 (담당: 기획 파트)"
+          ]
+        });
+      }
+    }, 1500);
+  };
   // Test Firestore Connection
   useEffect(() => {
     async function testConnection() {
@@ -1551,8 +1584,217 @@ export default function App() {
              </div>
           )}
 
+          {/* AI Automation States */}
+          {(activeTab === 'ai_meeting' || activeTab === 'ai_action') && (
+            <div className="max-w-4xl mx-auto pb-20 mt-6">
+               <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden min-h-[500px] flex flex-col">
+                 <div className="p-6 border-b border-slate-200 bg-slate-50 flex items-center gap-3">
+                   {activeTab === 'ai_meeting' ? <Mic className="w-6 h-6 text-indigo-500" /> : <ListTodo className="w-6 h-6 text-indigo-500" />}
+                   <h2 className="text-xl font-bold text-slate-800">
+                     {activeTab === 'ai_meeting' ? t('ai.meeting.title') : t('ai.action.title')}
+                   </h2>
+                 </div>
+                 <div className="p-8 flex-1 flex flex-col gap-6">
+                   <div className="flex-1 min-h-[200px]">
+                     <textarea
+                       className="w-full h-full min-h-[200px] p-4 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-none outline-none transition-all placeholder:text-slate-400 text-slate-700 bg-slate-50/50"
+                       placeholder={t('ai.inputPlaceholder')}
+                       value={aiInputText}
+                       onChange={(e) => setAiInputText(e.target.value)}
+                     />
+                   </div>
+                   <div className="flex justify-end">
+                     <button
+                       onClick={() => handleAiAction(activeTab === 'ai_meeting' ? 'meeting' : 'action')}
+                       disabled={isAiLoading || !aiInputText.trim()}
+                       className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-semibold rounded-xl shadow-md shadow-indigo-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                     >
+                       {isAiLoading ? (
+                         <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                       ) : (
+                         <Sparkles className="w-5 h-5" />
+                       )}
+                       {isAiLoading ? t('ai.analyzing') : (activeTab === 'ai_meeting' ? t('ai.summarizeBtn') : t('ai.extractBtn'))}
+                     </button>
+                   </div>
+                   
+                   {/* Render AI Result */}
+                   {aiResult && aiResult.type === (activeTab === 'ai_meeting' ? 'meeting' : 'action') && (
+                     <div className="mt-4 p-6 bg-indigo-50/50 border border-indigo-100 rounded-xl animate-[fadeIn_0.5s_ease-out_forwards]">
+                       <h3 className="font-bold text-indigo-800 mb-4 flex items-center gap-2 pb-3 border-b border-indigo-100/50">
+                         <Sparkles className="w-5 h-5 text-indigo-500" /> 
+                         {activeTab === 'ai_meeting' ? t('ai.resultSummary') : t('ai.resultAction')}
+                       </h3>
+                       <ul className="space-y-3">
+                         {(activeTab === 'ai_meeting' ? aiResult.summary : aiResult.actions).map((item: string, idx: number) => (
+                           <li key={idx} className="flex gap-3 text-slate-700 font-medium leading-relaxed">
+                              {activeTab === 'ai_meeting' ? (
+                                <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 mt-2 flex-shrink-0" />
+                              ) : (
+                                <div className="w-5 h-5 rounded border-2 border-slate-300 mt-0.5 bg-white flex-shrink-0" />
+                              )}
+                              <span>{item}</span>
+                           </li>
+                         ))}
+                       </ul>
+                     </div>
+                   )}
+                 </div>
+               </div>
+            </div>
+          )}
+
+          {activeTab === 'ai_weekly' && (
+            <div className="max-w-4xl mx-auto pb-20 mt-6 animate-[fadeIn_0.5s_ease-out_forwards]">
+               <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden min-h-[500px]">
+                 <div className="p-8 md:p-12">
+                    <div className="flex items-center justify-between mb-8 pb-6 border-b border-slate-100">
+                      <div>
+                        <div className="flex items-center gap-3 text-indigo-600 font-semibold mb-2">
+                          <BarChart3 className="w-6 h-6" />
+                          <span className="tracking-wider uppercase text-sm">{t('ai.weekly.reportTitle')}</span>
+                        </div>
+                        <h1 className="text-3xl font-extrabold text-slate-900">{t('ai.weekly.title')}</h1>
+                      </div>
+                      <div className="bg-indigo-50 text-indigo-700 font-bold px-4 py-2 rounded-xl border border-indigo-100 flex items-center gap-2 shadow-sm">
+                        <CheckCircle2 className="w-5 h-5" />
+                        {tasks.filter(t => t.status === 'Done' && isThisWeek(t.completedAt ? new Date(t.completedAt).toISOString() : new Date(t.createdAt).toISOString())).length} Tasks Done
+                      </div>
+                    </div>
+                    
+                    <div className="prose prose-slate max-w-none">
+                      <p className="text-lg text-slate-600 mb-6 font-medium leading-relaxed">
+                        {tasks.filter(t => t.status === 'Done' && isThisWeek(t.completedAt ? new Date(t.completedAt).toISOString() : new Date(t.createdAt).toISOString())).length > 0 ? (
+                          <>🎉 {t('ai.weekly.summary1')} <strong className="text-indigo-600">{tasks.filter(t => t.status === 'Done' && isThisWeek(t.completedAt ? new Date(t.completedAt).toISOString() : new Date(t.createdAt).toISOString())).length}</strong>{t('ai.weekly.summary2')}</>
+                        ) : (
+                          t('ai.weekly.noTasks')
+                        )}
+                      </p>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8">
+                        {tasks.filter(t => t.status === 'Done' && isThisWeek(t.completedAt ? new Date(t.completedAt).toISOString() : new Date(t.createdAt).toISOString())).map(task => (
+                           <div key={task.id} className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                             <div className="font-semibold text-slate-800 mb-1">{task.title}</div>
+                             <div className="text-sm text-slate-500 mb-2 line-clamp-2">{task.description}</div>
+                             <div className="text-xs font-bold text-indigo-600 uppercase tracking-widest">{task.assignee}</div>
+                           </div>
+                        ))}
+                      </div>
+                    </div>
+                 </div>
+               </div>
+            </div>
+          )}
+
+          {activeTab === 'ai_delay' && (
+            <div className="max-w-4xl mx-auto pb-20 mt-6 animate-[fadeIn_0.5s_ease-out_forwards]">
+               <div className="bg-white rounded-xl border border-rose-200 shadow-sm overflow-hidden min-h-[500px]">
+                 <div className="p-8 md:p-12 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-64 h-64 bg-rose-50 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none" />
+                    
+                    <div className="flex items-center gap-3 text-rose-600 font-semibold mb-6 not-prose relative z-10">
+                      <AlertTriangle className="w-8 h-8 animate-pulse" />
+                      <span className="tracking-wider text-lg">{t('ai.delay.title')}</span>
+                    </div>
+                    
+                    <div className="bg-rose-50 border border-rose-100 p-6 rounded-xl mb-8 relative z-10">
+                      <p className="text-rose-800 font-medium text-lg flex items-start gap-3">
+                        <Sparkles className="w-6 h-6 mt-0.5 text-rose-500 shrink-0" />
+                        {t('ai.delay.desc')}
+                      </p>
+                    </div>
+
+                    <div className="space-y-4 relative z-10">
+                      {tasks.filter(t => t.status !== 'Done' && new Date(t.dueDate) < new Date(new Date().setHours(0,0,0,0))).length > 0 ? (
+                        tasks.filter(t => t.status !== 'Done' && new Date(t.dueDate) < new Date(new Date().setHours(0,0,0,0))).map(task => (
+                          <div key={task.id} className="flex flex-col sm:flex-row sm:items-center gap-4 p-5 bg-white border-2 border-slate-100 rounded-xl shadow-sm hover:border-rose-200 transition-colors">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="px-2 py-0.5 bg-rose-100 text-rose-700 text-[10px] font-bold uppercase rounded">{t(`board.${task.status === 'Blocked' ? 'blocked' : (task.status === 'In Progress' ? 'inProgress' : 'todo')}`)}</span>
+                                <h4 className="font-bold text-slate-800 text-lg">{task.title}</h4>
+                              </div>
+                              <p className="text-sm text-slate-500">담당자: <strong className="text-slate-700">{task.assignee}</strong></p>
+                            </div>
+                            <div className="bg-rose-50 px-4 py-2 rounded-lg text-center shrink-0 border border-rose-100">
+                              <div className="text-[10px] font-bold text-rose-400 uppercase tracking-widest mb-0.5">마감일 (초과)</div>
+                              <div className="text-rose-600 font-bold">{new Date(task.dueDate).toLocaleDateString()}</div>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-center py-16">
+                          <CheckCircle2 className="w-16 h-16 text-emerald-400 mx-auto mb-4 opacity-50" />
+                          <p className="text-lg font-medium text-slate-600">{t('ai.delay.noDelays')}</p>
+                        </div>
+                      )}
+                    </div>
+                 </div>
+               </div>
+            </div>
+          )}
+
+          {activeTab === 'ai_blocker' && (
+            <div className="max-w-4xl mx-auto pb-20 mt-6 animate-[fadeIn_0.5s_ease-out_forwards]">
+               <div className="bg-white rounded-xl border border-orange-200 shadow-sm overflow-hidden min-h-[500px]">
+                 <div className="p-8 md:p-12 relative overflow-hidden">
+                    <div className="absolute top-0 left-0 w-64 h-64 bg-orange-50 rounded-full blur-3xl -ml-20 -mt-20 pointer-events-none" />
+                    
+                    <div className="flex items-center justify-between mb-8 relative z-10">
+                      <div className="flex items-center gap-3 text-orange-600 font-semibold not-prose">
+                        <ShieldAlert className="w-8 h-8" />
+                        <span className="tracking-wider text-lg">{t('ai.blocker.title')}</span>
+                      </div>
+                      <div className="bg-orange-100 text-orange-700 font-bold px-4 py-2 rounded-xl flex items-center gap-2">
+                        {tasks.filter(t => t.status === 'Blocked').length} Blocked
+                      </div>
+                    </div>
+                    
+                    <div className="bg-gradient-to-r from-orange-50 to-rose-50 border border-orange-100 p-6 rounded-xl mb-8 relative z-10">
+                      <p className="text-orange-800 font-medium text-lg flex items-start gap-3 mb-3">
+                        <Sparkles className="w-6 h-6 mt-0.5 text-orange-500 shrink-0" />
+                        {t('ai.blocker.desc')}
+                      </p>
+                      <p className="text-slate-600 text-sm ml-9 font-medium">{t('ai.blocker.suggestion')}</p>
+                    </div>
+
+                    <div className="space-y-4 relative z-10">
+                      {tasks.filter(t => t.status === 'Blocked').length > 0 ? (
+                        tasks.filter(t => t.status === 'Blocked').map(task => (
+                          <div key={task.id} className="p-5 bg-white border-2 border-orange-100 rounded-xl shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
+                            <div className="absolute top-0 left-0 w-1 h-full bg-orange-400" />
+                            <div className="flex justify-between items-start mb-2">
+                               <h4 className="font-bold text-slate-800 text-lg">{task.title}</h4>
+                               <span className="px-3 py-1 bg-slate-100 text-slate-700 text-sm font-bold rounded-lg shadow-sm border border-slate-200">{task.assignee}</span>
+                            </div>
+                            <p className="text-sm text-slate-600 mb-4">{task.description}</p>
+                            
+                            <div className="bg-orange-50/50 rounded-lg p-4 border border-orange-100/50 flex items-start gap-3">
+                               <div className="w-6 h-6 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center shrink-0 shadow-sm border border-orange-200">
+                                 <AlertCircle className="w-4 h-4" />
+                               </div>
+                               <div>
+                                 <div className="text-[11px] font-bold text-orange-500 uppercase tracking-wider mb-1">AI Action Plan</div>
+                                 <div className="text-sm text-slate-700 font-medium leading-relaxed">
+                                   [{task.assignee}]님에게 일정 확인 요청 메시지를 전송하고, 즉각적인 스탠드업 미팅을 통해 문제를 공유하는 것을 권장합니다.
+                                 </div>
+                               </div>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-center py-16">
+                          <CheckCircle2 className="w-16 h-16 text-emerald-400 mx-auto mb-4 opacity-50" />
+                          <p className="text-lg font-medium text-slate-600">{t('ai.blocker.noBlockers')}</p>
+                        </div>
+                      )}
+                    </div>
+                 </div>
+               </div>
+            </div>
+          )}
+
           {/* Coming Soon state for non-implemented paths */}
-          {!['board', 'sync', 'issues', 'calendar', 'docs', 'deadline', 'comments', 'meetings', 'projects', 'risks', 'assignees', 'review_req', 'revision_req', 'pending_appr', 'completion_log'].includes(activeTab) && !currentManualKey && (
+          {!['board', 'sync', 'issues', 'calendar', 'docs', 'deadline', 'comments', 'meetings', 'projects', 'risks', 'assignees', 'review_req', 'revision_req', 'pending_appr', 'completion_log', 'ai_meeting', 'ai_action', 'ai_weekly', 'ai_delay', 'ai_blocker'].includes(activeTab) && !currentManualKey && (
             <div className="flex flex-col items-center justify-center min-h-[60vh] text-center opacity-0 animate-[fadeIn_0.5s_ease-out_forwards]">
               <div className="w-24 h-24 mb-6 relative">
                  <div className="absolute inset-0 bg-indigo-100 rounded-full animate-ping opacity-60 duration-1000"></div>
