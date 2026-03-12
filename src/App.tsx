@@ -216,15 +216,22 @@ export default function App() {
     };
   }, []);
 
+  const [installMessage, setInstallMessage] = useState<string | null>(null);
+
   const handleInstallApp = async () => {
     if (!deferredPrompt) {
-      alert(language === 'ko' ? '현재 브라우저에서는 자동 설치를 지원하지 않습니다. 아래의 설치 방법을 참고해주세요.' : 'Automatic installation is not supported in this browser. Please refer to the installation guide below.');
+      setInstallMessage(language === 'ko' ? '아래의 설치 방법을 참고해주세요.' : 'Please refer to the installation guide below.');
+      setTimeout(() => setInstallMessage(null), 3000);
       return;
     }
-    deferredPrompt.prompt();
-    const result = await deferredPrompt.userChoice;
-    if (result.outcome === 'accepted') {
-      setIsAppInstalled(true);
+    try {
+      deferredPrompt.prompt();
+      const result = await deferredPrompt.userChoice;
+      if (result.outcome === 'accepted') {
+        setIsAppInstalled(true);
+      }
+    } catch {
+      // prompt may fail if already called
     }
     setDeferredPrompt(null);
   };
@@ -1122,31 +1129,37 @@ export default function App() {
                           </div>
                         ) : (
                           <div className="space-y-4">
+                            {installMessage && (
+                              <div className="p-2.5 rounded-xl bg-amber-50/80 border border-amber-200/60 text-amber-700 text-[12px] font-medium flex items-center gap-2 animate-[fadeIn_0.2s_ease-out]">
+                                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                                {installMessage}
+                              </div>
+                            )}
                             <button
                               onClick={handleInstallApp}
                               className={`w-full py-3 font-bold rounded-xl transition-colors shadow-md flex items-center justify-center gap-2 text-sm ${
                                 deferredPrompt
                                   ? 'bg-indigo-600 text-white hover:bg-indigo-700'
-                                  : 'bg-indigo-50 text-indigo-600 border border-indigo-200 hover:bg-indigo-100'
+                                  : 'bg-white/50 text-indigo-600 border border-white/60 hover:bg-white/70'
                               }`}
                             >
                               <Download className="w-4 h-4" />
                               {t('install.btn')}
                             </button>
-                            
+
                             {!deferredPrompt && (
-                              <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                              <div className="bg-white/30 p-3 rounded-xl border border-white/50">
                                 <p className="text-[12px] font-medium text-slate-600 mb-3">{t('install.howTo')}</p>
                                 <div className="space-y-2">
-                                  <div className="flex items-start gap-2.5 p-2 bg-white rounded-md border border-slate-100 shadow-sm">
+                                  <div className="flex items-start gap-2.5 p-2 bg-white/50 rounded-lg border border-white/60">
                                     <Monitor className="w-4 h-4 text-slate-500 mt-0.5 shrink-0" />
                                     <span className="text-[11px] text-slate-700 font-medium leading-relaxed">{t('install.step1.chrome')}</span>
                                   </div>
-                                  <div className="flex items-start gap-2.5 p-2 bg-white rounded-md border border-slate-100 shadow-sm">
+                                  <div className="flex items-start gap-2.5 p-2 bg-white/50 rounded-lg border border-white/60">
                                     <Smartphone className="w-4 h-4 text-slate-500 mt-0.5 shrink-0" />
                                     <span className="text-[11px] text-slate-700 font-medium leading-relaxed">{t('install.step1.safari')}</span>
                                   </div>
-                                  <div className="flex items-start gap-2.5 p-2 bg-white rounded-md border border-slate-100 shadow-sm">
+                                  <div className="flex items-start gap-2.5 p-2 bg-white/50 rounded-lg border border-white/60">
                                     <Monitor className="w-4 h-4 text-slate-500 mt-0.5 shrink-0" />
                                     <span className="text-[11px] text-slate-700 font-medium leading-relaxed">{t('install.step1.edge')}</span>
                                   </div>
