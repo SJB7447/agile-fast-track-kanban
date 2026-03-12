@@ -191,19 +191,28 @@ export default function App() {
 
   // Listen for PWA install prompt
   useEffect(() => {
-    const handler = (e: Event) => {
+    const handleBeforeInstall = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e);
     };
-    window.addEventListener('beforeinstallprompt', handler);
+    const handleAppInstalled = () => {
+      setIsAppInstalled(true);
+      setDeferredPrompt(null);
+    };
 
-    // Check if already installed
-    if (window.matchMedia('(display-mode: standalone)').matches) {
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    window.addEventListener('appinstalled', handleAppInstalled);
+
+    // Check if already installed (standalone mode or iOS navigator check)
+    if (window.matchMedia('(display-mode: standalone)').matches ||
+        (navigator as any).standalone === true) {
       setIsAppInstalled(true);
     }
-    window.addEventListener('appinstalled', () => setIsAppInstalled(true));
 
-    return () => window.removeEventListener('beforeinstallprompt', handler);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+    };
   }, []);
 
   const handleInstallApp = async () => {
