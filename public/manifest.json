@@ -35,6 +35,6 @@
       "purpose": "maskable"
     }
   ],
-  "screenshots": [],
+  "prefer_related_applications": false,
   "categories": ["productivity", "business"]
 }
