@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<body>
+<canvas id="c192" width="192" height="192"></canvas>
+<canvas id="c512" width="512" height="512"></canvas>
+<script>
+function drawIcon(canvas) {
+  const ctx = canvas.getContext('2d');
+  const s = canvas.width;
+  // Background gradient
+  const grad = ctx.createLinearGradient(0, 0, s, s);
+  grad.addColorStop(0, '#6366f1');
+  grad.addColorStop(1, '#7c3aed');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.roundRect(0, 0, s, s, s * 0.2);
+  ctx.fill();
+  // Lightning bolt
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  const cx = s * 0.5, cy = s * 0.5;
+  const scale = s / 512;
+  ctx.moveTo(cx + 60*scale, cy - 160*scale);
+  ctx.lineTo(cx - 40*scale, cy + 10*scale);
+  ctx.lineTo(cx + 20*scale, cy + 10*scale);
+  ctx.lineTo(cx - 60*scale, cy + 160*scale);
+  ctx.lineTo(cx + 40*scale, cy - 10*scale);
+  ctx.lineTo(cx - 20*scale, cy - 10*scale);
+  ctx.closePath();
+  ctx.fill();
+}
+drawIcon(document.getElementById('c192'));
+drawIcon(document.getElementById('c512'));
+// Download links
+document.getElementById('c192').toBlob(b => {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download='icon-192.png'; a.click();
+});
+document.getElementById('c512').toBlob(b => {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download='icon-512.png'; a.click();
+});
+</script>
+</body>
+</html>
