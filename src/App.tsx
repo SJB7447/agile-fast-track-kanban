@@ -186,14 +186,21 @@ export default function App() {
   const [notifPermission, setNotifPermission] = useState<string>(getPermissionStatus());
   const [notifTestSent, setNotifTestSent] = useState(false);
 
-  // PWA Install State
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  // PWA Install State - pick up early-captured event from main.tsx
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(() => {
+    const early = (window as any).__pwaInstallPrompt;
+    if (early) {
+      (window as any).__pwaInstallPrompt = null;
+    }
+    return early || null;
+  });
   const [isAppInstalled, setIsAppInstalled] = useState(false);
 
-  // Listen for PWA install prompt
+  // Listen for PWA install prompt (for future events after mount)
   useEffect(() => {
     const handleBeforeInstall = (e: Event) => {
       e.preventDefault();
+      (window as any).__pwaInstallPrompt = null;
       setDeferredPrompt(e);
     };
     const handleAppInstalled = () => {
