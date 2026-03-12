@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { motion } from 'motion/react';
 import { useLanguage } from './i18n';
 import { DriveFile, getOrCreateAppFolder, listFiles, uploadFile, deleteFile, formatFileSize, getFileTypeIcon } from './driveService';
 import { Task, Status, Priority, Comment } from './types';
@@ -778,7 +779,7 @@ export default function App() {
 
   if (!isAuthReady) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+      <div className="min-h-screen glass-bg flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
       </div>
     );
@@ -786,16 +787,16 @@ export default function App() {
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-        <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 max-w-md w-full text-center">
-          <div className="w-16 h-16 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-6">
+      <div className="min-h-screen glass-bg flex items-center justify-center p-4">
+        <div className="glass-card-strong p-8 rounded-2xl shadow-2xl shadow-black/5 max-w-md w-full text-center">
+          <div className="w-16 h-16 bg-indigo-100/60 rounded-full flex items-center justify-center mx-auto mb-6">
             <LayoutDashboard className="w-8 h-8 text-indigo-600" />
           </div>
           <h1 className="text-2xl font-bold text-slate-900 mb-2">Fast-Track Agile</h1>
           <p className="text-slate-500 mb-8">Sign in to access your team's Kanban board and sync your Google Calendar.</p>
           <button
             onClick={handleLogin}
-            className="w-full flex items-center justify-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-xl font-medium hover:bg-indigo-700 transition-colors shadow-sm"
+            className="w-full flex items-center justify-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-xl font-medium hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200/50"
           >
             <LogIn className="w-5 h-5" />
             Sign in with Google
@@ -806,14 +807,14 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans text-slate-900">
+    <div className="min-h-screen glass-bg flex flex-col md:flex-row font-sans text-slate-900">
       {/* Mobile Sidebar Overlay */}
       {isMobileSidebarOpen && (
-        <div className="fixed inset-0 bg-black/40 z-30 md:hidden" onClick={() => setIsMobileSidebarOpen(false)} />
+        <div className="fixed inset-0 bg-black/20 backdrop-blur-sm z-30 md:hidden" onClick={() => setIsMobileSidebarOpen(false)} />
       )}
       {/* Sidebar */}
-      <aside className={`fixed inset-y-0 left-0 w-[280px] bg-white border-r border-slate-200 flex flex-col shrink-0 drop-shadow-sm z-40 transition-transform duration-300 ease-in-out md:static md:translate-x-0 ${isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="p-6 border-b border-slate-100/80 bg-white sticky top-0 z-10">
+      <aside className={`fixed inset-y-0 left-0 w-[280px] glass-sidebar flex flex-col shrink-0 z-40 transition-transform duration-300 ease-in-out md:static md:translate-x-0 ${isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className="p-6 border-b border-white/40 sticky top-0 z-10">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-md shadow-indigo-200">
               <LayoutDashboard className="w-4 h-4" />
@@ -841,7 +842,7 @@ export default function App() {
               <div key={category.title} className={idx > 0 ? "mt-3" : ""}>
                 <button
                   onClick={() => toggleCategory(category.title)}
-                  className="w-full flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-slate-50 transition-colors group"
+                  className="w-full flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-white/30 transition-colors group"
                 >
                   <h3 className="text-[12px] font-extrabold text-slate-500 tracking-wide uppercase group-hover:text-slate-700 transition-colors">
                     {category.title}
@@ -870,8 +871,8 @@ export default function App() {
                           }}
                           className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] transition-all duration-200 group relative outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
                             isActive
-                              ? 'bg-indigo-50/80 text-indigo-700 font-semibold shadow-sm'
-                              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
+                              ? 'bg-white/50 text-indigo-700 font-semibold shadow-sm backdrop-blur-sm'
+                              : 'text-slate-600 hover:bg-white/30 hover:text-slate-900 font-medium'
                           }`}
                         >
                           {isActive && (
@@ -900,11 +901,11 @@ export default function App() {
           })}
         </nav>
         
-        <div className="p-4 border-t border-slate-100 bg-white min-h-[68px] flex flex-col gap-2 shrink-0">
+        <div className="p-4 border-t border-white/40 min-h-[68px] flex flex-col gap-2 shrink-0">
           <div className="flex items-center justify-between px-2 w-full">
-            <div className="flex bg-slate-100 rounded-lg p-1 w-full relative">
-              <div 
-                className={`absolute inset-y-1 w-[calc(50%-4px)] bg-white rounded-md shadow-sm transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${language === 'en' ? 'translate-x-[calc(100%+4px)]' : 'translate-x-0'}`}
+            <div className="flex bg-white/30 rounded-lg p-1 w-full relative">
+              <div
+                className={`absolute inset-y-1 w-[calc(50%-4px)] bg-white/60 rounded-md shadow-sm backdrop-blur-sm transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${language === 'en' ? 'translate-x-[calc(100%+4px)]' : 'translate-x-0'}`}
               ></div>
               <button
                 onClick={() => setLanguage('ko')}
@@ -923,7 +924,7 @@ export default function App() {
           <div className="relative">
             <button
               onClick={() => setShowProfileMenu(prev => !prev)}
-              className="w-full flex items-center gap-3 px-2 hover:bg-slate-50 p-2 rounded-lg cursor-pointer transition-colors border border-transparent hover:border-slate-200"
+              className="w-full flex items-center gap-3 px-2 hover:bg-white/30 p-2 rounded-lg cursor-pointer transition-colors border border-transparent hover:border-white/40"
             >
               <img src={user.photoURL || `https://ui-avatars.com/api/?name=${user.displayName}`} alt="Profile" className="w-9 h-9 rounded-full ring-2 ring-white shadow-sm" />
               <div className="flex-1 min-w-0 text-left">
@@ -937,13 +938,13 @@ export default function App() {
             {showProfileMenu && (
               <>
                 <div className="fixed inset-0 z-30" onClick={() => { setShowProfileMenu(false); setProfilePanel('main'); }} />
-                <div className="absolute bottom-full left-0 right-0 mb-2 bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden z-40 animate-[fadeIn_0.15s_ease-out_forwards] max-h-[70vh] overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:bg-slate-200 [&::-webkit-scrollbar-thumb]:rounded-full">
+                <div className="absolute bottom-full left-0 right-0 mb-2 glass-card-strong rounded-2xl shadow-2xl shadow-black/10 overflow-hidden z-40 animate-[fadeIn_0.15s_ease-out_forwards] max-h-[70vh] overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:bg-slate-200 [&::-webkit-scrollbar-thumb]:rounded-full">
 
                   {/* === MAIN Panel === */}
                   {profilePanel === 'main' && (
                     <div>
                       {/* Header */}
-                      <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">
+                      <div className="px-4 py-3 border-b border-white/40">
                         <div className="flex items-center gap-3">
                           <img src={user.photoURL || `https://ui-avatars.com/api/?name=${user.displayName}`} alt="Profile" className="w-10 h-10 rounded-full ring-2 ring-white shadow-sm" />
                           <div className="flex-1 min-w-0">
@@ -956,9 +957,9 @@ export default function App() {
                         {/* Notification Settings - opens sub panel */}
                         <button
                           onClick={() => setProfilePanel('notifications')}
-                          className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-slate-50 transition-colors"
+                          className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-white/30 transition-colors"
                         >
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${notifSettings.enabled ? 'bg-indigo-100' : 'bg-slate-100'}`}>
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${notifSettings.enabled ? 'bg-indigo-100/60' : 'bg-slate-100/60'}`}>
                             {notifSettings.enabled ? <Bell className="w-4 h-4 text-indigo-600" /> : <BellOff className="w-4 h-4 text-slate-400" />}
                           </div>
                           <div className="flex-1 min-w-0">
@@ -971,9 +972,9 @@ export default function App() {
                         {/* Install App - opens sub panel */}
                         <button
                           onClick={() => setProfilePanel('install')}
-                          className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-slate-50 transition-colors"
+                          className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-white/30 transition-colors"
                         >
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isAppInstalled ? 'bg-emerald-100' : 'bg-purple-100'}`}>
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isAppInstalled ? 'bg-emerald-100/60' : 'bg-purple-100/60'}`}>
                             {isAppInstalled ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <Download className="w-4 h-4 text-purple-600" />}
                           </div>
                           <div className="flex-1 min-w-0">
@@ -990,9 +991,9 @@ export default function App() {
                         {/* Tutorial */}
                         <button
                           onClick={reopenTutorial}
-                          className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-slate-50 transition-colors"
+                          className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-white/30 transition-colors"
                         >
-                          <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
+                          <div className="w-8 h-8 rounded-lg bg-amber-100/60 flex items-center justify-center">
                             <HelpCircle className="w-4 h-4 text-amber-600" />
                           </div>
                           <div className="flex-1 min-w-0">
@@ -1001,14 +1002,14 @@ export default function App() {
                           </div>
                         </button>
 
-                        <div className="my-1.5 mx-3 border-t border-slate-100" />
+                        <div className="my-1.5 mx-3 border-t border-white/40" />
 
                         {/* Logout */}
                         <button
                           onClick={() => { handleLogout(); setShowProfileMenu(false); setProfilePanel('main'); }}
-                          className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-red-50 transition-colors group"
+                          className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-red-50/40 transition-colors group"
                         >
-                          <div className="w-8 h-8 rounded-lg bg-slate-100 group-hover:bg-red-100 flex items-center justify-center transition-colors">
+                          <div className="w-8 h-8 rounded-lg bg-slate-100/60 group-hover:bg-red-100/60 flex items-center justify-center transition-colors">
                             <LogOut className="w-4 h-4 text-slate-500 group-hover:text-red-500 transition-colors" />
                           </div>
                           <p className="text-[13px] font-semibold text-slate-700 group-hover:text-red-600 transition-colors">{t('auth.logout')}</p>
@@ -1021,8 +1022,8 @@ export default function App() {
                   {profilePanel === 'notifications' && (
                     <div>
                       {/* Back Header */}
-                      <div className="px-3 py-2.5 border-b border-slate-100 bg-slate-50/50 flex items-center gap-2">
-                        <button onClick={() => setProfilePanel('main')} className="p-1 rounded-md hover:bg-slate-200 transition-colors">
+                      <div className="px-3 py-2.5 border-b border-white/40 flex items-center gap-2">
+                        <button onClick={() => setProfilePanel('main')} className="p-1 rounded-md hover:bg-white/40 transition-colors">
                           <ChevronLeft className="w-4 h-4 text-slate-600" />
                         </button>
                         <BellRing className="w-4 h-4 text-indigo-600" />
@@ -1105,8 +1106,8 @@ export default function App() {
                   {profilePanel === 'install' && (
                     <div>
                       {/* Back Header */}
-                      <div className="px-3 py-2.5 border-b border-slate-100 bg-slate-50/50 flex items-center gap-2">
-                        <button onClick={() => setProfilePanel('main')} className="p-1 rounded-md hover:bg-slate-200 transition-colors">
+                      <div className="px-3 py-2.5 border-b border-white/40 flex items-center gap-2">
+                        <button onClick={() => setProfilePanel('main')} className="p-1 rounded-md hover:bg-white/40 transition-colors">
                           <ChevronLeft className="w-4 h-4 text-slate-600" />
                         </button>
                         <Download className="w-4 h-4 text-purple-600" />
@@ -1181,8 +1182,8 @@ export default function App() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden bg-slate-50/50">
-        <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 md:px-8 py-3 md:py-5 flex items-center justify-between shrink-0 sticky top-0 z-10 transition-all drop-shadow-sm">
+      <main className="flex-1 flex flex-col h-screen overflow-hidden">
+        <header className="glass-header px-4 md:px-8 py-3 md:py-5 flex items-center justify-between shrink-0 sticky top-0 z-10 transition-all">
           <div className="flex items-center gap-3">
             <button
               onClick={() => setIsMobileSidebarOpen(true)}
@@ -1211,11 +1212,11 @@ export default function App() {
               {COLUMNS.map(column => (
                 <div
                   key={column}
-                  className="flex-shrink-0 w-[85vw] sm:w-72 md:w-80 bg-slate-100/50 rounded-xl border border-slate-200 flex flex-col max-h-full snap-start"
+                  className="flex-shrink-0 w-[85vw] sm:w-72 md:w-80 glass-card rounded-2xl flex flex-col max-h-full snap-start shadow-2xl shadow-black/5"
                   onDragOver={handleDragOver}
                   onDrop={(e) => handleDrop(e, column)}
                 >
-                  <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-100/80 rounded-t-xl">
+                  <div className="p-4 border-b border-white/40 flex items-center justify-between rounded-t-2xl">
                     <h3 className="font-semibold text-slate-700 flex items-center gap-2">
                       {column === 'To Do' && <div className="w-2 h-2 rounded-full bg-slate-400" />}
                       {column === 'In Progress' && <div className="w-2 h-2 rounded-full bg-blue-500" />}
@@ -1223,7 +1224,7 @@ export default function App() {
                       {column === 'Done' && <div className="w-2 h-2 rounded-full bg-emerald-500" />}
                       {column}
                     </h3>
-                    <span className="bg-white text-slate-500 text-xs font-medium px-2 py-1 rounded-full shadow-sm border border-slate-200">
+                    <span className="bg-white/60 text-slate-500 text-xs font-medium px-2 py-1 rounded-full border border-white/60">
                       {tasks.filter(t => t.status === column).length}
                     </span>
                   </div>
@@ -1238,7 +1239,7 @@ export default function App() {
                     ))}
                     <button 
                       onClick={() => openCreateModal(column)}
-                      className="w-full py-2 flex items-center justify-center gap-2 text-sm text-slate-500 hover:text-slate-700 hover:bg-slate-200/50 rounded-lg transition-colors border border-dashed border-slate-300"
+                      className="w-full py-2 flex items-center justify-center gap-2 text-sm text-slate-500 hover:text-slate-700 hover:bg-white/40 rounded-xl transition-colors border border-dashed border-white/60"
                     >
                       <Plus className="w-4 h-4" /> Add Task
                     </button>
@@ -2664,20 +2665,25 @@ interface TaskCardProps {
 
 function TaskCard({ task, onDragStart, onClick }: TaskCardProps) {
   const priorityColors = {
-    High: 'bg-orange-100 text-orange-700 border-orange-200',
-    Medium: 'bg-blue-100 text-blue-700 border-blue-200',
-    Low: 'bg-slate-100 text-slate-700 border-slate-200'
+    High: 'bg-orange-200/60 text-orange-700 border-orange-300/50',
+    Medium: 'bg-blue-200/60 text-blue-700 border-blue-300/50',
+    Low: 'bg-slate-200/60 text-slate-700 border-slate-300/50'
   };
 
   return (
-    <div 
+    <motion.div
       draggable
-      onDragStart={(e) => onDragStart(e, task.id)}
+      onDragStart={(e: React.DragEvent) => onDragStart(e, task.id)}
       onClick={onClick}
-      className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 cursor-grab active:cursor-grabbing hover:border-indigo-300 hover:shadow-md transition-all group"
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, ease: 'easeOut' }}
+      whileHover={{ y: -3, scale: 1.015 }}
+      whileTap={{ scale: 0.97 }}
+      className="glass-card-strong p-4 rounded-2xl shadow-2xl shadow-black/5 cursor-grab active:cursor-grabbing hover:border-purple-300/60 transition-colors group"
     >
       <div className="flex justify-between items-start mb-2">
-        <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${priorityColors[task.priority]}`}>
+        <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-lg border ${priorityColors[task.priority]}`}>
           {task.priority}
         </span>
         <button className="text-slate-400 opacity-0 group-hover:opacity-100 hover:text-slate-700 transition-opacity">
@@ -2688,9 +2694,9 @@ function TaskCard({ task, onDragStart, onClick }: TaskCardProps) {
       {task.description && (
         <p className="text-xs text-slate-500 line-clamp-2 mb-3">{task.description}</p>
       )}
-      <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-100">
+      <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/40">
         <div className="flex items-center gap-1.5 text-xs text-slate-500 font-medium">
-          <div className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-[10px] font-bold">
+          <div className="w-5 h-5 rounded-full bg-indigo-200/60 text-indigo-700 flex items-center justify-center text-[10px] font-bold">
             {task.assignee ? task.assignee.charAt(0).toUpperCase() : '?'}
           </div>
           <span className="truncate max-w-[80px]">{task.assignee || 'Unassigned'}</span>
@@ -2700,6 +2706,6 @@ function TaskCard({ task, onDragStart, onClick }: TaskCardProps) {
           {new Date(task.dueDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
