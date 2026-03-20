@@ -413,7 +413,7 @@ export default function App() {
   // FCM token ref
   const fcmTokenRef = useRef<string | null>(null);
 
-  // Auto-request notification permission and init FCM after login
+  // Auto-request notification permission and init FCM after login or page refresh
   useEffect(() => {
     if (!user) return;
 
@@ -425,11 +425,23 @@ export default function App() {
         if (perm !== 'granted') return;
       }
 
-      // Initialize FCM
+      // Initialize FCM - retry with delay to ensure service worker is ready
       const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
-      if (vapidKey && Notification.permission === 'granted') {
-        const token = await initFCM(app, db, user.uid, vapidKey);
-        fcmTokenRef.current = token;
+      if (vapidKey && Notification.permission === 'granted' && !fcmTokenRef.current) {
+        try {
+          const token = await initFCM(app, db, user.uid, vapidKey);
+          fcmTokenRef.current = token;
+        } catch (e) {
+          console.warn('FCM init failed, retrying in 3s...', e);
+          setTimeout(async () => {
+            try {
+              const token = await initFCM(app, db, user.uid, vapidKey);
+              fcmTokenRef.current = token;
+            } catch (e2) {
+              console.error('FCM init retry failed:', e2);
+            }
+          }, 3000);
+        }
       }
     };
 
