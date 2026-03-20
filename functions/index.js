@@ -5,14 +5,15 @@ const { getMessaging } = require('firebase-admin/messaging');
 
 initializeApp();
 
-const db = getFirestore();
+const DATABASE_ID = 'ai-studio-e8ec37ff-210b-4a12-b903-a1e7fa79036f';
+const db = getFirestore(DATABASE_ID);
 
 /**
  * Triggered when a new announcement is created.
  * Sends FCM push notification to all registered devices.
  */
 exports.onAnnouncementCreated = onDocumentCreated(
-  'announcements/{announcementId}',
+  { document: 'announcements/{announcementId}', database: DATABASE_ID },
   async (event) => {
     const announcement = event.data?.data();
     if (!announcement) return;
