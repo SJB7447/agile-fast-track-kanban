@@ -409,6 +409,13 @@ export default function App() {
     return () => unsubscribe();
   }, [checkAndSetAdmin]);
 
+  // Auto-request notification permission after login
+  useEffect(() => {
+    if (user && 'Notification' in window && Notification.permission === 'default') {
+      requestPermission().then(perm => setNotifPermission(perm));
+    }
+  }, [user]);
+
   // Track initial load to skip notifications on first snapshot
   const tRef = useRef<((key: string) => string) | null>(null);
   const isInitialTaskLoad = useRef(true);

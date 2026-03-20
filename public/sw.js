@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fast-track-v3';
+const CACHE_NAME = 'fast-track-v4';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -101,10 +101,10 @@ self.addEventListener('notificationclick', (event) => {
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
       // Focus existing window if available
       for (const client of clients) {
-        if (client.url.includes(self.location.origin) && 'focus' in client) {
-          client.focus();
-          client.postMessage({ type: 'NOTIFICATION_CLICK', url: targetUrl });
-          return;
+        if (new URL(client.url).origin === self.location.origin && 'focus' in client) {
+          return client.focus().then(() => {
+            client.postMessage({ type: 'NOTIFICATION_CLICK', url: targetUrl });
+          });
         }
       }
       // Otherwise open a new window

@@ -68,9 +68,10 @@ export async function showNotification(
   body: string,
   options?: { tag?: string; url?: string; icon?: string }
 ): Promise<void> {
+  if (!('Notification' in window)) return;
   if (Notification.permission !== 'granted') return;
 
-  // Try service worker notification first (works even when tab is inactive)
+  // Try service worker notification first (works on mobile PWA + background tabs)
   if ('serviceWorker' in navigator) {
     try {
       const reg = await navigator.serviceWorker.ready;
@@ -79,18 +80,27 @@ export async function showNotification(
         icon: options?.icon || '/icons/icon-192.png',
         badge: '/icons/icon-192.png',
         tag: options?.tag || 'default',
+        renotify: true,
+        vibrate: [200, 100, 200],
+        silent: false,
         data: { url: options?.url || '/' },
       } as NotificationOptions);
       return;
-    } catch {}
+    } catch (e) {
+      console.warn('SW notification failed, falling back:', e);
+    }
   }
 
-  // Fallback to basic Notification API
-  new Notification(title, {
-    body,
-    icon: options?.icon || '/icons/icon-192.png',
-    tag: options?.tag || 'default',
-  });
+  // Fallback to basic Notification API (desktop only)
+  try {
+    new Notification(title, {
+      body,
+      icon: options?.icon || '/icons/icon-192.png',
+      tag: options?.tag || 'default',
+    });
+  } catch (e) {
+    console.warn('Basic notification failed:', e);
+  }
 }
 
 // Check if the browser supports PWA install
