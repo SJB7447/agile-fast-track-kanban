@@ -413,6 +413,8 @@ export default function App() {
   const tRef = useRef<((key: string) => string) | null>(null);
   const isInitialTaskLoad = useRef(true);
   const isInitialCommentLoad = useRef(true);
+  const isInitialAnnouncementLoad = useRef(true);
+  const prevAnnouncementCountRef = useRef(0);
   const prevTasksRef = useRef<Task[]>([]);
   const localChangeIdsRef = useRef<Set<string>>(new Set());
   const notifSettingsRef = useRef(notifSettings);
@@ -431,6 +433,7 @@ export default function App() {
     // Reset initial load flags on re-subscribe
     isInitialTaskLoad.current = true;
     isInitialCommentLoad.current = true;
+    isInitialAnnouncementLoad.current = true;
 
     const unsubscribeTasks = onSnapshot(collection(db, 'tasks'), (snapshot) => {
       const newTasks = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Task));
@@ -504,6 +507,20 @@ export default function App() {
     const announcementsQuery = query(collection(db, 'announcements'), orderBy('createdAt', 'desc'), limit(30));
     const unsubscribeAnnouncements = onSnapshot(announcementsQuery, (snapshot) => {
       const items = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Announcement));
+
+      // Notify all users when a new announcement is added (skip initial load)
+      if (!isInitialAnnouncementLoad.current && items.length > prevAnnouncementCountRef.current) {
+        const newest = items[0];
+        if (newest && newest.authorId !== user.uid) {
+          const tr = tRef.current || undefined;
+          const typeLabel = newest.type === 'urgent' ? `🚨 ${tr ? tr('announce.type.urgent') : '긴급'}` :
+                           newest.type === 'update' ? `🚀 ${tr ? tr('announce.type.update') : '업데이트'}` :
+                           `📢 ${tr ? tr('announce.type.notice') : '공지'}`;
+          showNotification(typeLabel, newest.title, { tag: 'announcement' });
+        }
+      }
+      isInitialAnnouncementLoad.current = false;
+      prevAnnouncementCountRef.current = items.length;
       setAnnouncements(items);
     }, (error) => {
       console.error("Firestore Announcements Error:", error);
