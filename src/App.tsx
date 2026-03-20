@@ -271,7 +271,7 @@ export default function App() {
 
   const handleInstallApp = async () => {
     if (!deferredPrompt) {
-      setInstallMessage(language === 'ko' ? '아래의 설치 방법을 참고해주세요.' : 'Please refer to the installation guide below.');
+      setInstallMessage(t('misc.installGuideMsg'));
       if (installTimerRef.current) clearTimeout(installTimerRef.current);
       installTimerRef.current = setTimeout(() => setInstallMessage(null), 3000);
       return;
@@ -639,10 +639,17 @@ export default function App() {
   const handleTokenExpired = useCallback(() => {
     setGoogleAccessToken(null);
     setIsCalendarConnected(false);
-    alert(language === 'ko'
-      ? 'Google 인증이 만료되었습니다. 다시 로그인해주세요.'
-      : 'Google authentication expired. Please sign in again.');
+    alert(t('misc.googleAuthExpired'));
   }, [language]);
+
+  const statusLabel = (s: Status) => {
+    const map: Record<Status, string> = { 'To Do': t('status.todo'), 'In Progress': t('status.inProgress'), 'Blocked': t('status.blocked'), 'Done': t('status.done') };
+    return map[s] || s;
+  };
+  const priorityLabel = (p: Priority) => {
+    const map: Record<Priority, string> = { 'High': t('priority.high'), 'Medium': t('priority.medium'), 'Low': t('priority.low') };
+    return map[p] || p;
+  };
 
   const assigneeList = useMemo(() => [...new Set(tasks.map(t => t.assignee).filter(Boolean))], [tasks]);
   const tasksByStatus = useMemo(() => {
@@ -747,7 +754,7 @@ export default function App() {
       const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB
       for (const file of Array.from(files)) {
         if (file.size > MAX_FILE_SIZE) {
-          alert(language === 'ko' ? `"${file.name}" 파일이 25MB를 초과합니다.` : `"${file.name}" exceeds the 25MB limit.`);
+          alert(`"${file.name}" ${t('misc.fileSizeExceed')}`);
           continue;
         }
         await uploadFile(googleAccessToken, fId, file);
@@ -762,7 +769,7 @@ export default function App() {
   };
 
   const handleDeleteFile = async (fileId: string, fileName: string) => {
-    const confirmMsg = language === 'ko' ? `"${fileName}" 파일을 삭제하시겠습니까?` : `Delete "${fileName}"?`;
+    const confirmMsg = `"${fileName}" - ${t('misc.deleteFileConfirm')}`;
     if (!googleAccessToken || !confirm(confirmMsg)) return;
     try {
       await deleteFile(googleAccessToken, fileId);
@@ -875,7 +882,8 @@ export default function App() {
       localChangeIdsRef.current.add(taskId);
       await setDoc(doc(db, 'tasks', taskId), {
         ...taskToUpdate,
-        status
+        status,
+        lastModifiedBy: user.uid
       });
     } catch (error) {
       localChangeIdsRef.current.delete(taskId);
@@ -894,7 +902,8 @@ export default function App() {
         changeId = editingTask.id;
         const updatedTask = {
           ...editingTask,
-          ...taskData
+          ...taskData,
+          lastModifiedBy: user.uid
         };
         localChangeIdsRef.current.add(changeId);
         await setDoc(doc(db, 'tasks', editingTask.id), updatedTask);
@@ -905,7 +914,8 @@ export default function App() {
         const newTask = {
           ...taskData,
           createdAt: Date.now(),
-          createdBy: user.uid
+          createdBy: user.uid,
+          lastModifiedBy: user.uid
         };
         localChangeIdsRef.current.add(changeId);
         await setDoc(doc(db, 'tasks', newId), newTask);
@@ -1226,7 +1236,7 @@ export default function App() {
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="text-[13px] font-semibold text-slate-800">{t('nav.item.notifications')}</p>
-                            <p className="text-[11px] text-slate-500">{notifSettings.enabled ? (language === 'ko' ? '활성화됨' : 'Enabled') : (language === 'ko' ? '비활성화됨' : 'Disabled')}</p>
+                            <p className="text-[11px] text-slate-500">{notifSettings.enabled ? t('misc.enabled') : t('misc.disabled')}</p>
                           </div>
                           <ChevronRight className="w-4 h-4 text-slate-400" />
                         </button>
@@ -1242,9 +1252,9 @@ export default function App() {
                           <div className="flex-1 min-w-0">
                             <p className="text-[13px] font-semibold text-slate-800">{t('nav.item.installApp')}</p>
                             <p className="text-[11px] text-slate-500">
-                              {isAppInstalled ? (language === 'ko' ? '설치 완료' : 'Installed') :
-                               deferredPrompt ? (language === 'ko' ? '설치 가능' : 'Ready to install') :
-                               (language === 'ko' ? '설치 방법 보기' : 'View install guide')}
+                              {isAppInstalled ? t('misc.installed') :
+                               deferredPrompt ? t('misc.readyInstall') :
+                               t('misc.viewInstallGuide')}
                             </p>
                           </div>
                           <ChevronRight className="w-4 h-4 text-slate-400" />
@@ -1779,7 +1789,7 @@ export default function App() {
                       {column === 'In Progress' && <div className="w-2 h-2 rounded-full bg-blue-500" />}
                       {column === 'Blocked' && <div className="w-2 h-2 rounded-full bg-red-500" />}
                       {column === 'Done' && <div className="w-2 h-2 rounded-full bg-emerald-500" />}
-                      {column}
+                      {statusLabel(column)}
                     </h3>
                     <span className="bg-white/60 text-slate-500 text-xs font-medium px-2 py-1 rounded-full border border-white/60">
                       {(tasksByStatus[column] || []).length}
@@ -1798,7 +1808,7 @@ export default function App() {
                       onClick={() => openCreateModal(column)}
                       className="w-full py-2 flex items-center justify-center gap-2 text-sm text-slate-500 hover:text-slate-700 hover:bg-white/40 rounded-xl transition-colors border border-dashed border-white/60"
                     >
-                      <Plus className="w-4 h-4" /> {language === 'ko' ? '작업 추가' : 'Add Task'}
+                      <Plus className="w-4 h-4" /> {t('misc.addTask')}
                     </button>
                   </div>
                 </div>
@@ -1863,7 +1873,7 @@ export default function App() {
               </div>
               
               <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                 <h3 className="text-lg font-semibold mb-4">{language === 'ko' ? '팀 작업량' : 'Team Workload'}</h3>
+                 <h3 className="text-lg font-semibold mb-4">{t('misc.teamWorkload')}</h3>
                  <div className="space-y-4">
                    {assigneeList.map(assignee => {
                      const userTasks = tasks.filter(t => t.assignee === assignee);
@@ -1876,10 +1886,10 @@ export default function App() {
                        <div key={assignee} className="flex items-center gap-4">
                          <div className="w-24 font-medium text-slate-700">{assignee}</div>
                          <div className="flex-1 h-4 bg-slate-100 rounded-full overflow-hidden flex">
-                           {done > 0 && <div style={{width: `${(done/userTasks.length)*100}%`}} className="bg-emerald-500 h-full" title={`${done} Done`} />}
-                           {inProgress > 0 && <div style={{width: `${(inProgress/userTasks.length)*100}%`}} className="bg-blue-500 h-full" title={`${inProgress} In Progress`} />}
-                           {blocked > 0 && <div style={{width: `${(blocked/userTasks.length)*100}%`}} className="bg-red-500 h-full" title={`${blocked} Blocked`} />}
-                           {todo > 0 && <div style={{width: `${(todo/userTasks.length)*100}%`}} className="bg-slate-300 h-full" title={`${todo} To Do`} />}
+                           {done > 0 && <div style={{width: `${(done/userTasks.length)*100}%`}} className="bg-emerald-500 h-full" title={`${done} ${t('status.done')}`} />}
+                           {inProgress > 0 && <div style={{width: `${(inProgress/userTasks.length)*100}%`}} className="bg-blue-500 h-full" title={`${inProgress} ${t('status.inProgress')}`} />}
+                           {blocked > 0 && <div style={{width: `${(blocked/userTasks.length)*100}%`}} className="bg-red-500 h-full" title={`${blocked} ${t('status.blocked')}`} />}
+                           {todo > 0 && <div style={{width: `${(todo/userTasks.length)*100}%`}} className="bg-slate-300 h-full" title={`${todo} ${t('status.todo')}`} />}
                          </div>
                          <div className="w-12 text-right text-sm text-slate-500">{userTasks.length} tasks</div>
                        </div>
@@ -1896,7 +1906,7 @@ export default function App() {
                 <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
                   <h3 className="font-semibold text-slate-800 flex items-center gap-2">
                     <AlertCircle className="w-5 h-5 text-red-500" />
-                    {language === 'ko' ? '주요 이슈 & 차단 항목' : 'Critical Issues & Blockers'}
+                    {t('issues.criticalTitle')}
                   </h3>
                 </div>
                 <div className="divide-y divide-slate-200">
@@ -1919,7 +1929,7 @@ export default function App() {
                           <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                             task.status === 'Blocked' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
                           }`}>
-                            {task.status === 'Blocked' ? 'Blocked' : 'High Priority'}
+                            {task.status === 'Blocked' ? t('status.blocked') : t('dashboard.highPriority')}
                           </span>
                         </div>
                         <p className="text-sm text-slate-600 mb-2">{task.description}</p>
@@ -1951,7 +1961,7 @@ export default function App() {
                   {tasks.filter(t => t.status === 'Blocked' || t.priority === 'High').length === 0 && (
                     <div className="p-8 text-center text-slate-500">
                       <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto mb-3" />
-                      <p>{language === 'ko' ? '현재 주요 이슈나 차단 항목이 없습니다.' : 'No critical issues or blockers right now.'}</p>
+                      <p>{t('issues.noCritical')}</p>
                     </div>
                   )}
                 </div>
@@ -2320,22 +2330,22 @@ export default function App() {
                      <div className="p-6 grid grid-cols-4 gap-4 bg-white">
                         <div className="p-4 bg-slate-50 rounded-lg border border-slate-100 flex flex-col items-center justify-center">
                            <span className="text-2xl font-bold text-slate-700">{tasks.filter(t => t.status === 'To Do').length}</span>
-                           <span className="text-xs font-semibold text-slate-500 uppercase mt-1 tracking-wider">To Do</span>
+                           <span className="text-xs font-semibold text-slate-500 uppercase mt-1 tracking-wider">{t('status.todo')}</span>
                         </div>
                         <div className="p-4 bg-blue-50 rounded-lg border border-blue-100 flex flex-col items-center justify-center">
                            <span className="text-2xl font-bold text-blue-700">{tasks.filter(t => t.status === 'In Progress').length}</span>
-                           <span className="text-xs font-semibold text-blue-500 uppercase mt-1 tracking-wider">In Progress</span>
+                           <span className="text-xs font-semibold text-blue-500 uppercase mt-1 tracking-wider">{t('status.inProgress')}</span>
                         </div>
                         <div className="p-4 bg-emerald-50 rounded-lg border border-emerald-100 flex flex-col items-center justify-center">
                            <span className="text-2xl font-bold text-emerald-700">{tasks.filter(t => t.status === 'Done').length}</span>
-                           <span className="text-xs font-semibold text-emerald-500 uppercase mt-1 tracking-wider">Done</span>
+                           <span className="text-xs font-semibold text-emerald-500 uppercase mt-1 tracking-wider">{t('status.done')}</span>
                         </div>
                         <div className="p-4 bg-red-50 rounded-lg border border-red-100 flex flex-col items-center justify-center relative overflow-hidden">
                            <div className="absolute top-0 right-0 w-8 h-8 bg-red-100 rounded-bl-full shadow-sm flex items-start justify-end pr-1.5 pt-1.5">
                              <div className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse"></div>
                            </div>
                            <span className="text-2xl font-bold text-red-700">{tasks.filter(t => t.status === 'Blocked').length}</span>
-                           <span className="text-xs font-semibold text-red-500 uppercase mt-1 tracking-wider">Blocked</span>
+                           <span className="text-xs font-semibold text-red-500 uppercase mt-1 tracking-wider">{t('status.blocked')}</span>
                         </div>
                      </div>
                   </div>
@@ -2351,9 +2361,9 @@ export default function App() {
                 <div className="p-6 border-b border-slate-200">
                   <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
                     <ShieldAlert className="w-5 h-5 text-red-500" />
-                    리스크 보드
+                    {t('risk.title')}
                   </h3>
-                  <p className="text-sm text-slate-500 mt-1">위험도가 높거나 진행이 차단된 특별 관리 대상 작업들입니다.</p>
+                  <p className="text-sm text-slate-500 mt-1">{t('risk.desc')}</p>
                 </div>
                 <div className="flex-1 bg-slate-50/50 p-6 flex items-start justify-center">
                   <div className="max-w-3xl w-full grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -2361,7 +2371,7 @@ export default function App() {
                     <div className="bg-red-50/50 rounded-xl border border-red-200 shadow-sm overflow-hidden">
                        <div className="bg-red-100/50 px-4 py-3 border-b border-red-200 flex justify-between items-center">
                           <h4 className="font-bold text-red-800 flex items-center gap-1.5">
-                             <AlertOctagon className="w-4 h-4" /> Critical
+                             <AlertOctagon className="w-4 h-4" /> {t('risk.critical')}
                           </h4>
                           <span className="bg-red-200 text-red-800 text-xs font-bold px-2 py-0.5 rounded-full">
                             {tasks.filter(t => t.status === 'Blocked' && t.priority === 'High').length}
@@ -2371,12 +2381,12 @@ export default function App() {
                          {tasks.filter(t => t.status === 'Blocked' && t.priority === 'High').map(task => (
                            <div key={task.id} className="bg-white p-3 rounded-lg border border-red-100 shadow-sm select-text">
                               <p className="font-semibold text-slate-800 text-sm mb-1">{task.title}</p>
-                              <p className="text-xs text-slate-500 mb-2">{task.assignee || '미지정'}</p>
-                              <button onClick={() => openEditModal(task)} className="text-[11px] font-bold text-red-600 hover:text-red-800 uppercase tracking-widest">Resolve Now &rarr;</button>
+                              <p className="text-xs text-slate-500 mb-2">{task.assignee || t('risk.unassigned')}</p>
+                              <button onClick={() => openEditModal(task)} className="text-[11px] font-bold text-red-600 hover:text-red-800 uppercase tracking-widest">{t('risk.resolveNow')} &rarr;</button>
                            </div>
                          ))}
                          {tasks.filter(t => t.status === 'Blocked' && t.priority === 'High').length === 0 && (
-                            <div className="text-center p-4 text-xs font-medium text-red-400">No Critical Risks</div>
+                            <div className="text-center p-4 text-xs font-medium text-red-400">{t('risk.noCritical')}</div>
                          )}
                        </div>
                     </div>
@@ -2385,7 +2395,7 @@ export default function App() {
                     <div className="bg-orange-50/50 rounded-xl border border-orange-200 shadow-sm overflow-hidden">
                        <div className="bg-orange-100/50 px-4 py-3 border-b border-orange-200 flex justify-between items-center">
                           <h4 className="font-bold text-orange-800 flex items-center gap-1.5">
-                             <AlertTriangle className="w-4 h-4" /> Moderate
+                             <AlertTriangle className="w-4 h-4" /> {t('risk.moderate')}
                           </h4>
                           <span className="bg-orange-200 text-orange-800 text-xs font-bold px-2 py-0.5 rounded-full">
                             {tasks.filter(t => (t.status === 'Blocked' && t.priority !== 'High') || (t.status !== 'Blocked' && t.priority === 'High' && t.status !== 'Done')).length}
@@ -2395,12 +2405,12 @@ export default function App() {
                          {tasks.filter(t => (t.status === 'Blocked' && t.priority !== 'High') || (t.status !== 'Blocked' && t.priority === 'High' && t.status !== 'Done')).map(task => (
                            <div key={task.id} className="bg-white p-3 rounded-lg border border-orange-100 shadow-sm select-text">
                               <p className="font-semibold text-slate-800 text-sm mb-1">{task.title}</p>
-                              <p className="text-xs text-slate-500 mb-2">{task.assignee || '미지정'} • {task.status}</p>
-                              <button onClick={() => openEditModal(task)} className="text-[11px] font-bold text-orange-600 hover:text-orange-800 uppercase tracking-widest">Review &rarr;</button>
+                              <p className="text-xs text-slate-500 mb-2">{task.assignee || t('risk.unassigned')} • {statusLabel(task.status)}</p>
+                              <button onClick={() => openEditModal(task)} className="text-[11px] font-bold text-orange-600 hover:text-orange-800 uppercase tracking-widest">{t('risk.review')} &rarr;</button>
                            </div>
                          ))}
                          {tasks.filter(t => (t.status === 'Blocked' && t.priority !== 'High') || (t.status !== 'Blocked' && t.priority === 'High' && t.status !== 'Done')).length === 0 && (
-                            <div className="text-center p-4 text-xs font-medium text-orange-400">No Moderate Risks</div>
+                            <div className="text-center p-4 text-xs font-medium text-orange-400">{t('risk.noModerate')}</div>
                          )}
                        </div>
                     </div>
@@ -2440,7 +2450,7 @@ export default function App() {
                           <img src={`https://ui-avatars.com/api/?name=${assignee}&background=6366f1&color=fff`} alt={assignee} className="w-10 h-10 rounded-full shadow-sm" />
                           <div>
                             <h4 className="font-bold text-slate-800">{assignee}</h4>
-                            <p className="text-xs font-medium text-slate-500">{total} Tasks Total</p>
+                            <p className="text-xs font-medium text-slate-500">{total} {t('misc.tasksTotal')}</p>
                           </div>
                         </div>
 
@@ -2451,19 +2461,19 @@ export default function App() {
                           
                           <div className="grid grid-cols-2 gap-2 text-sm">
                             <div className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
-                               <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider">To Do</span>
+                               <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider">{t('status.todo')}</span>
                                <span className="font-bold text-slate-700">{todo}</span>
                             </div>
                             <div className="flex justify-between items-center p-2 rounded-lg bg-blue-50 border border-blue-100">
-                               <span className="text-blue-500 text-xs font-semibold uppercase tracking-wider">Doing</span>
+                               <span className="text-blue-500 text-xs font-semibold uppercase tracking-wider">{t('status.inProgress')}</span>
                                <span className="font-bold text-blue-700">{inProgress}</span>
                             </div>
                             <div className="flex justify-between items-center p-2 rounded-lg bg-red-50 border border-red-100">
-                               <span className="text-red-500 text-xs font-semibold uppercase tracking-wider">Blocked</span>
+                               <span className="text-red-500 text-xs font-semibold uppercase tracking-wider">{t('status.blocked')}</span>
                                <span className="font-bold text-red-700">{blocked}</span>
                             </div>
                             <div className="flex justify-between items-center p-2 rounded-lg bg-emerald-50 border border-emerald-100">
-                               <span className="text-emerald-600 text-xs font-semibold uppercase tracking-wider">Done</span>
+                               <span className="text-emerald-600 text-xs font-semibold uppercase tracking-wider">{t('status.done')}</span>
                                <span className="font-bold text-emerald-700">{done}</span>
                             </div>
                           </div>
@@ -2810,7 +2820,7 @@ export default function App() {
                         <span className="tracking-wider text-lg">{t('ai.blocker.title')}</span>
                       </div>
                       <div className="bg-orange-100 text-orange-700 font-bold px-4 py-2 rounded-xl flex items-center gap-2">
-                        {tasks.filter(t => t.status === 'Blocked').length} Blocked
+                        {tasks.filter(t => t.status === 'Blocked').length} {t('status.blocked')}
                       </div>
                     </div>
                     
@@ -2889,7 +2899,7 @@ export default function App() {
           <div className="bg-white rounded-t-2xl sm:rounded-xl shadow-xl w-full sm:max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
             <div className="px-4 sm:px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
               <h3 className="text-lg font-semibold text-slate-800">
-                {editingTask.id ? (language === 'ko' ? '작업 수정' : 'Edit Task') : (language === 'ko' ? '새 작업 만들기' : 'Create New Task')}
+                {editingTask.id ? t('modal.editTask') : t('modal.newTask')}
               </h3>
               <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600">
                 <X className="w-5 h-5" />
@@ -2910,39 +2920,39 @@ export default function App() {
               }} className="space-y-4">
                 
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Title</label>
-                  <input 
-                    name="title" 
-                    defaultValue={editingTask.title} 
-                    required 
+                  <label className="block text-sm font-medium text-slate-700 mb-1">{t('modal.title')}</label>
+                  <input
+                    name="title"
+                    defaultValue={editingTask.title}
+                    required
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
-                    placeholder="E.g., Update landing page copy"
+                    placeholder={t('modal.titlePlaceholder')}
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
-                  <textarea 
-                    name="description" 
-                    defaultValue={editingTask.description} 
+                  <label className="block text-sm font-medium text-slate-700 mb-1">{t('modal.description')}</label>
+                  <textarea
+                    name="description"
+                    defaultValue={editingTask.description}
                     rows={3}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all resize-none"
-                    placeholder="Add details, acceptance criteria, etc."
+                    placeholder={t('modal.descPlaceholder')}
                   />
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Assignee</label>
-                    <input 
-                      name="assignee" 
-                      defaultValue={editingTask.assignee} 
+                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('modal.assignee')}</label>
+                    <input
+                      name="assignee"
+                      defaultValue={editingTask.assignee}
                       className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
-                      placeholder="Team member name"
+                      placeholder={t('modal.assigneePlaceholder')}
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Due Date</label>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('modal.dueDate')}</label>
                     <input 
                       type="date"
                       name="dueDate" 
@@ -2955,23 +2965,23 @@ export default function App() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Priority</label>
-                    <select 
-                      name="priority" 
+                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('modal.priority')}</label>
+                    <select
+                      name="priority"
                       defaultValue={editingTask.priority}
                       className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all bg-white"
                     >
-                      {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+                      {PRIORITIES.map(p => <option key={p} value={p}>{t(`priority.${p.toLowerCase()}`)}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Status</label>
-                    <select 
-                      name="status" 
+                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('modal.status')}</label>
+                    <select
+                      name="status"
                       defaultValue={editingTask.status}
                       className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all bg-white"
                     >
-                      {COLUMNS.map(s => <option key={s} value={s}>{s}</option>)}
+                      {COLUMNS.map(s => <option key={s} value={s}>{statusLabel(s)}</option>)}
                     </select>
                   </div>
                 </div>
@@ -2979,7 +2989,7 @@ export default function App() {
                 {/* Feedback Center Action Area */}
                 <div className="mt-6 pt-4 border-t border-slate-200">
                    <h4 className="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
-                     <Eye className="w-4 h-4 text-indigo-500" /> 피드백 요건 변경
+                     <Eye className="w-4 h-4 text-indigo-500" /> {t('modal.feedbackSection')}
                    </h4>
                    <div className="flex flex-wrap gap-2">
                      {editingTask.status !== 'Done' && (
@@ -3000,7 +3010,7 @@ export default function App() {
                      </button>
                    </div>
                    {editingTask.feedbackStatus && (
-                     <p className="mt-2 text-[11px] text-slate-500 font-medium">현재 상태: <span className="text-indigo-600">{t(`feedback.status.${editingTask.feedbackStatus}`)}</span></p>
+                     <p className="mt-2 text-[11px] text-slate-500 font-medium">{t('modal.currentStatus')}: <span className="text-indigo-600">{t(`feedback.status.${editingTask.feedbackStatus}`)}</span></p>
                    )}
                 </div>
 
@@ -3011,13 +3021,13 @@ export default function App() {
                 <button 
                   type="button"
                   onClick={() => {
-                    if (confirm(language === 'ko' ? '이 작업을 삭제하시겠습니까?' : 'Are you sure you want to delete this task?')) {
+                    if (confirm(t('misc.deleteTaskConfirm'))) {
                       handleDeleteTask(editingTask.id);
                     }
                   }}
                   className="text-red-600 hover:text-red-700 text-sm font-medium px-3 py-2 rounded-lg hover:bg-red-50 transition-colors"
                 >
-                  Delete Task
+                  {t('modal.deleteTask')}
                 </button>
               ) : <div></div>}
               <div className="flex gap-3">
@@ -3026,14 +3036,14 @@ export default function App() {
                   onClick={() => setIsModalOpen(false)}
                   className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
                 >
-                  Cancel
+                  {t('modal.cancel')}
                 </button>
-                <button 
+                <button
                   type="submit"
                   form="task-form"
                   className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"
                 >
-                  {editingTask.id ? 'Save Changes' : 'Create Task'}
+                  {editingTask.id ? t('modal.saveChanges') : t('modal.createTask')}
                 </button>
               </div>
             </div>
@@ -3123,14 +3133,14 @@ export default function App() {
             visual: (
               <div className="flex items-center gap-2 py-4 justify-center">
                 <div className="w-16 h-10 bg-blue-100 border border-blue-200 rounded-lg flex items-center justify-center">
-                  <span className="text-[9px] font-bold text-blue-600">In Progress</span>
+                  <span className="text-[9px] font-bold text-blue-600">{t('status.inProgress')}</span>
                 </div>
                 <div className="flex items-center gap-0.5 text-slate-400">
                   <div className="w-4 h-0.5 bg-slate-300 rounded" />
                   <ChevronRight className="w-4 h-4" />
                 </div>
                 <div className="w-16 h-10 bg-emerald-100 border-2 border-emerald-300 rounded-lg flex items-center justify-center shadow-sm">
-                  <span className="text-[9px] font-bold text-emerald-600">Done</span>
+                  <span className="text-[9px] font-bold text-emerald-600">{t('status.done')}</span>
                 </div>
               </div>
             ),
