@@ -588,7 +588,7 @@ export default function App() {
       : 'Google authentication expired. Please sign in again.');
   }, [language]);
 
-  const assigneeList = useMemo(() => assigneeList, [tasks]);
+  const assigneeList = useMemo(() => [...new Set(tasks.map(t => t.assignee).filter(Boolean))], [tasks]);
   const tasksByStatus = useMemo(() => {
     const map: Record<string, Task[]> = {};
     for (const col of COLUMNS) map[col] = [];
