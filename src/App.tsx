@@ -218,7 +218,6 @@ export default function App() {
   // Notification Settings State
   const [notifSettings, setNotifSettings] = useState<NotificationSettings>(loadNotifSettings);
   const [notifPermission, setNotifPermission] = useState<string>(getPermissionStatus());
-  const [notifTestSent, setNotifTestSent] = useState(false);
 
   // PWA Install State - pick up early-captured event from main.tsx
   const [deferredPrompt, setDeferredPrompt] = useState<Event | null>(() => {
@@ -303,12 +302,6 @@ export default function App() {
     const updated = { ...notifSettings, [key]: value };
     setNotifSettings(updated);
     saveNotifSettings(updated);
-  };
-
-  const handleTestNotification = async () => {
-    await showNotification('Fast-Track Agile', t('notif.testSent'), { tag: 'test' });
-    setNotifTestSent(true);
-    setTimeout(() => setNotifTestSent(false), 3000);
   };
 
   // AI Automation State
@@ -1018,7 +1011,7 @@ export default function App() {
       )}
       {/* Sidebar */}
       <aside className={`fixed inset-y-0 left-0 w-[280px] glass-sidebar flex flex-col shrink-0 z-40 transition-transform duration-300 ease-in-out md:static md:translate-x-0 ${isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="p-6 border-b border-white/40 sticky top-0 z-10">
+        <div className="p-6 border-b border-slate-200 sticky top-0 z-10">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-md shadow-indigo-200">
               <LayoutDashboard className="w-4 h-4" />
@@ -1046,7 +1039,7 @@ export default function App() {
               <div key={category.title} className={idx > 0 ? "mt-3" : ""}>
                 <button
                   onClick={() => toggleCategory(category.title)}
-                  className="w-full flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-white/30 transition-colors group"
+                  className="w-full flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-slate-100 transition-colors group"
                 >
                   <h3 className="text-[12px] font-extrabold text-slate-500 tracking-wide uppercase group-hover:text-slate-700 transition-colors">
                     {category.title}
@@ -1075,8 +1068,8 @@ export default function App() {
                           }}
                           className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] transition-all duration-200 group relative outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
                             isActive
-                              ? 'bg-white/50 text-indigo-700 font-semibold shadow-sm backdrop-blur-sm'
-                              : 'text-slate-600 hover:bg-white/30 hover:text-slate-900 font-medium'
+                              ? 'bg-indigo-50 text-indigo-700 font-semibold shadow-sm'
+                              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium'
                           }`}
                         >
                           {isActive && (
@@ -1105,11 +1098,11 @@ export default function App() {
           })}
         </nav>
         
-        <div className="p-4 border-t border-white/40 min-h-[68px] flex flex-col gap-2 shrink-0">
+        <div className="p-4 border-t border-slate-200 min-h-[68px] flex flex-col gap-2 shrink-0">
           <div className="flex items-center justify-between px-2 w-full">
-            <div className="flex bg-white/30 rounded-lg p-1 w-full relative">
+            <div className="flex bg-slate-100 rounded-lg p-1 w-full relative">
               <div
-                className={`absolute inset-y-1 w-[calc(50%-4px)] bg-white/60 rounded-md shadow-sm backdrop-blur-sm transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${language === 'en' ? 'translate-x-[calc(100%+4px)]' : 'translate-x-0'}`}
+                className={`absolute inset-y-1 w-[calc(50%-4px)] bg-white rounded-md shadow-sm transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${language === 'en' ? 'translate-x-[calc(100%+4px)]' : 'translate-x-0'}`}
               ></div>
               <button
                 onClick={() => setLanguage('ko')}
@@ -1128,7 +1121,7 @@ export default function App() {
           <div className="relative">
             <button
               onClick={() => setShowProfileMenu(prev => !prev)}
-              className="w-full flex items-center gap-3 px-2 hover:bg-white/30 p-2 rounded-lg cursor-pointer transition-colors border border-transparent hover:border-white/40"
+              className="w-full flex items-center gap-3 px-2 hover:bg-slate-100 p-2 rounded-lg cursor-pointer transition-colors border border-transparent hover:border-slate-200"
             >
               <img src={user.photoURL || `https://ui-avatars.com/api/?name=${user.displayName}`} alt="Profile" className="w-9 h-9 rounded-full ring-2 ring-white shadow-sm" />
               <div className="flex-1 min-w-0 text-left">
@@ -1148,7 +1141,7 @@ export default function App() {
                   {profilePanel === 'main' && (
                     <div>
                       {/* Header */}
-                      <div className="px-4 py-3 border-b border-white/40">
+                      <div className="px-4 py-3 border-b border-slate-200">
                         <div className="flex items-center gap-3">
                           <img src={user.photoURL || `https://ui-avatars.com/api/?name=${user.displayName}`} alt="Profile" className="w-10 h-10 rounded-full ring-2 ring-white shadow-sm" />
                           <div className="flex-1 min-w-0">
@@ -1161,9 +1154,9 @@ export default function App() {
                         {/* Notification Settings - opens sub panel */}
                         <button
                           onClick={() => setProfilePanel('notifications')}
-                          className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-white/30 transition-colors"
+                          className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-slate-50 transition-colors"
                         >
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${notifSettings.enabled ? 'bg-indigo-100/60' : 'bg-slate-100/60'}`}>
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${notifSettings.enabled ? 'bg-indigo-100' : 'bg-slate-100'}`}>
                             {notifSettings.enabled ? <Bell className="w-4 h-4 text-indigo-600" /> : <BellOff className="w-4 h-4 text-slate-400" />}
                           </div>
                           <div className="flex-1 min-w-0">
@@ -1176,9 +1169,9 @@ export default function App() {
                         {/* Install App - opens sub panel */}
                         <button
                           onClick={() => setProfilePanel('install')}
-                          className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-white/30 transition-colors"
+                          className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-slate-50 transition-colors"
                         >
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isAppInstalled ? 'bg-emerald-100/60' : 'bg-purple-100/60'}`}>
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isAppInstalled ? 'bg-emerald-100' : 'bg-purple-100'}`}>
                             {isAppInstalled ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <Download className="w-4 h-4 text-purple-600" />}
                           </div>
                           <div className="flex-1 min-w-0">
@@ -1195,9 +1188,9 @@ export default function App() {
                         {/* Tutorial */}
                         <button
                           onClick={reopenTutorial}
-                          className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-white/30 transition-colors"
+                          className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-slate-50 transition-colors"
                         >
-                          <div className="w-8 h-8 rounded-lg bg-amber-100/60 flex items-center justify-center">
+                          <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
                             <HelpCircle className="w-4 h-4 text-amber-600" />
                           </div>
                           <div className="flex-1 min-w-0">
@@ -1206,14 +1199,14 @@ export default function App() {
                           </div>
                         </button>
 
-                        <div className="my-1.5 mx-3 border-t border-white/40" />
+                        <div className="my-1.5 mx-3 border-t border-slate-200" />
 
                         {/* Logout */}
                         <button
                           onClick={() => { handleLogout(); setShowProfileMenu(false); setProfilePanel('main'); }}
-                          className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-red-50/40 transition-colors group"
+                          className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-red-50 transition-colors group"
                         >
-                          <div className="w-8 h-8 rounded-lg bg-slate-100/60 group-hover:bg-red-100/60 flex items-center justify-center transition-colors">
+                          <div className="w-8 h-8 rounded-lg bg-slate-100 group-hover:bg-red-100 flex items-center justify-center transition-colors">
                             <LogOut className="w-4 h-4 text-slate-500 group-hover:text-red-500 transition-colors" />
                           </div>
                           <p className="text-[13px] font-semibold text-slate-700 group-hover:text-red-600 transition-colors">{t('auth.logout')}</p>
@@ -1226,8 +1219,8 @@ export default function App() {
                   {profilePanel === 'notifications' && (
                     <div>
                       {/* Back Header */}
-                      <div className="px-3 py-2.5 border-b border-white/40 flex items-center gap-2">
-                        <button onClick={() => setProfilePanel('main')} className="p-1 rounded-md hover:bg-white/40 transition-colors">
+                      <div className="px-3 py-2.5 border-b border-slate-200 flex items-center gap-2">
+                        <button onClick={() => setProfilePanel('main')} className="p-1 rounded-md hover:bg-slate-100 transition-colors">
                           <ChevronLeft className="w-4 h-4 text-slate-600" />
                         </button>
                         <BellRing className="w-4 h-4 text-indigo-600" />
@@ -1292,16 +1285,6 @@ export default function App() {
                           ))}
                         </div>
 
-                        {/* Test Button */}
-                        {notifSettings.enabled && notifPermission === 'granted' && (
-                          <button
-                            onClick={handleTestNotification}
-                            className="mt-3 w-full py-2 bg-indigo-50 text-indigo-700 text-[12px] font-bold rounded-lg hover:bg-indigo-100 transition-colors flex items-center justify-center gap-2 border border-indigo-100"
-                          >
-                            <BellRing className="w-3.5 h-3.5" />
-                            {notifTestSent ? t('notif.testSent') : t('notif.testBtn')}
-                          </button>
-                        )}
                       </div>
                     </div>
                   )}
@@ -1310,8 +1293,8 @@ export default function App() {
                   {profilePanel === 'install' && (
                     <div>
                       {/* Back Header */}
-                      <div className="px-3 py-2.5 border-b border-white/40 flex items-center gap-2">
-                        <button onClick={() => setProfilePanel('main')} className="p-1 rounded-md hover:bg-white/40 transition-colors">
+                      <div className="px-3 py-2.5 border-b border-slate-200 flex items-center gap-2">
+                        <button onClick={() => setProfilePanel('main')} className="p-1 rounded-md hover:bg-slate-100 transition-colors">
                           <ChevronLeft className="w-4 h-4 text-slate-600" />
                         </button>
                         <Download className="w-4 h-4 text-purple-600" />

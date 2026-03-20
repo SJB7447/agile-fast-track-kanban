@@ -52,12 +52,10 @@
   border: 1px solid rgba(255, 255, 255, 0.7);
 }
 
-/* Glassmorphism sidebar */
+/* Sidebar */
 .glass-sidebar {
-  background: rgba(255, 255, 255, 0.55);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border-right: 1px solid rgba(255, 255, 255, 0.5);
+  background: #ffffff;
+  border-right: 1px solid #e2e8f0;
 }
 
 /* Glassmorphism header */
