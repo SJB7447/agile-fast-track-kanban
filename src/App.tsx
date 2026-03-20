@@ -88,6 +88,15 @@ const requiredEnvVars = ['VITE_FIREBASE_API_KEY', 'VITE_FIREBASE_AUTH_DOMAIN', '
 const missingVars = requiredEnvVars.filter(key => !import.meta.env[key]);
 if (missingVars.length > 0) {
   console.error(`Missing required environment variables: ${missingVars.join(', ')}`);
+  // Show visible error in production instead of white screen
+  const root = document.getElementById('root');
+  if (root) {
+    root.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;flex-direction:column;gap:12px;color:#334155">
+      <h2 style="font-size:1.25rem;font-weight:700">⚠️ Configuration Error</h2>
+      <p style="font-size:0.875rem;color:#64748b">Missing environment variables: ${missingVars.join(', ')}</p>
+      <p style="font-size:0.75rem;color:#94a3b8">Vercel Dashboard → Settings → Environment Variables에서 설정해 주세요.</p>
+    </div>`;
+  }
 }
 
 const firebaseConfig = {
