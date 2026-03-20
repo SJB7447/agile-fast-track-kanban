@@ -92,7 +92,7 @@ exports.onAnnouncementCreated = onDocumentCreated(
 
     await sendToAllTokens(
       { title: `${typeEmoji} ${typeLabel}`, body: announcement.title },
-      { type: 'announcement', tag: 'announcement', url: '/' },
+      { type: 'announcement', tag: 'announcement', url: '/?tab=announcements' },
       null // send to everyone
     );
   }
@@ -108,7 +108,7 @@ exports.onTaskCreated = onDocumentCreated(
     const assignee = task.assignee || '미배정';
     await sendToAllTokens(
       { title: '➕ 새 작업 생성', body: `"${task.title}" → ${assignee}` },
-      { type: 'task-created', tag: 'task-created', url: '/' },
+      { type: 'task-created', tag: 'task-created', url: '/?tab=board' },
       task.createdBy || null
     );
   }
@@ -157,7 +157,7 @@ exports.onTaskUpdated = onDocumentUpdated(
     const tag = before.status !== after.status ? `task-${after.status.toLowerCase().replace(' ', '-')}` : 'task-updated';
     await sendToAllTokens(
       notification,
-      { type: 'task-updated', tag, url: '/' },
+      { type: 'task-updated', tag, url: '/?tab=board' },
       modifiedBy
     );
   }
@@ -172,7 +172,7 @@ exports.onCommentCreated = onDocumentCreated(
 
     await sendToAllTokens(
       { title: '💬 새 코멘트', body: `${comment.authorName}: ${comment.text.substring(0, 100)}` },
-      { type: 'comment', tag: 'comment', url: '/' },
+      { type: 'comment', tag: 'comment', url: '/?tab=comments' },
       comment.authorId || null
     );
   }

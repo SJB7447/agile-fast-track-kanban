@@ -283,6 +283,9 @@ export const translations: Translations = {
     'misc.deleteFileConfirm': '파일을 삭제하시겠습니까?',
     'misc.deleteTaskConfirm': '이 작업을 삭제하시겠습니까?',
     'misc.googleAuthExpired': 'Google 인증이 만료되었습니다. 다시 로그인해주세요.',
+    'notifCenter.title': '알림',
+    'notifCenter.markAllRead': '모두 읽음',
+    'notifCenter.empty': '알림이 없습니다.',
     'misc.tasksTotal': '개 작업',
 
     'install.title': '앱 설치',
@@ -595,6 +598,9 @@ export const translations: Translations = {
     'misc.deleteFileConfirm': 'Delete this file?',
     'misc.deleteTaskConfirm': 'Are you sure you want to delete this task?',
     'misc.googleAuthExpired': 'Google authentication expired. Please sign in again.',
+    'notifCenter.title': 'Notifications',
+    'notifCenter.markAllRead': 'Mark all read',
+    'notifCenter.empty': 'No notifications.',
     'misc.tasksTotal': 'Tasks Total',
 
     'install.title': 'Install App',

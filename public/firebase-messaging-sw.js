@@ -130,6 +130,8 @@ self.addEventListener('notificationclick', (event) => {
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
         if (new URL(client.url).origin === self.location.origin && 'focus' in client) {
+          // Send message to navigate to the correct tab
+          client.postMessage({ type: 'NAVIGATE_TAB', url: targetUrl });
           return client.focus();
         }
       }

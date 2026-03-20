@@ -123,7 +123,10 @@ export default function App() {
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(null);
 
-  const [activeTab, setActiveTab] = useState<string>('sync');
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('tab') || 'sync';
+  });
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
@@ -188,6 +191,31 @@ export default function App() {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [showAnnouncementForm, setShowAnnouncementForm] = useState(false);
   const [selectedAnnouncement, setSelectedAnnouncement] = useState<Announcement | null>(null);
+
+  // Notification Center State
+  interface NotifItem { id: string; title: string; body: string; tab: string; time: number; read: boolean; }
+  const [notifHistory, setNotifHistory] = useState<NotifItem[]>(() => {
+    try { const s = localStorage.getItem('notif_history'); return s ? JSON.parse(s) : []; } catch { return []; }
+  });
+  const [showNotifCenter, setShowNotifCenter] = useState(false);
+  const unreadCount = notifHistory.filter(n => !n.read).length;
+
+  const addNotifItem = (title: string, body: string, tab: string) => {
+    setNotifHistory(prev => {
+      const item: NotifItem = { id: crypto.randomUUID(), title, body, tab, time: Date.now(), read: false };
+      const next = [item, ...prev].slice(0, 50);
+      localStorage.setItem('notif_history', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const markAllRead = () => {
+    setNotifHistory(prev => {
+      const next = prev.map(n => ({ ...n, read: true }));
+      localStorage.setItem('notif_history', JSON.stringify(next));
+      return next;
+    });
+  };
 
   const isThisWeek = (dateStr: string) => {
     if (!dateStr) return false;
@@ -448,11 +476,23 @@ export default function App() {
     setupNotifications();
 
     // Listen for foreground FCM messages
-    const unsubForeground = onForegroundMessage(app, (title, body) => {
+    const unsubForeground = onForegroundMessage(app, (title, body, data) => {
       showNotification(title, body, { tag: 'fcm-foreground' });
+      const tab = data?.url ? new URLSearchParams(data.url.split('?')[1] || '').get('tab') || 'sync' : 'sync';
+      addNotifItem(title, body, tab);
     });
 
-    return () => { unsubForeground?.(); };
+    // Listen for SW notification click → navigate to tab
+    const handleSWMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'NAVIGATE_TAB') {
+        const url = event.data.url as string;
+        const tab = new URLSearchParams(url.split('?')[1] || '').get('tab');
+        if (tab) setActiveTab(tab);
+      }
+    };
+    navigator.serviceWorker?.addEventListener('message', handleSWMessage);
+
+    return () => { unsubForeground?.(); navigator.serviceWorker?.removeEventListener('message', handleSWMessage); };
   }, [user]);
 
   // Track initial load to skip notifications on first snapshot
@@ -498,15 +538,19 @@ export default function App() {
           const tr = tRef.current || undefined;
           if (!prevIds.has(task.id)) {
             notifyTaskCreated(task.title, task.assignee, tr);
+            addNotifItem(tr?.('notif.push.taskCreated.title') || '새 작업 생성', `"${task.title}" → ${task.assignee || ''}`, 'board');
           } else {
             const prev = prevMap.get(task.id);
             if (prev) {
               if (prev.status !== 'Blocked' && task.status === 'Blocked') {
                 notifyTaskBlocked(task.title, tr);
+                addNotifItem(tr?.('notif.push.taskBlocked.title') || '작업 차단됨', `"${task.title}" → Blocked`, 'board');
               } else if (prev.status !== 'Done' && task.status === 'Done') {
                 notifyTaskCompleted(task.title, tr);
+                addNotifItem(tr?.('notif.push.taskCompleted.title') || '작업 완료', `"${task.title}"`, 'board');
               } else if (prev.feedbackStatus !== task.feedbackStatus && task.feedbackStatus) {
                 notifyFeedbackRequest(task.title, task.feedbackStatus, tr);
+                addNotifItem(tr?.('notif.push.feedback.title') || '피드백 알림', `"${task.title}"`, 'board');
               } else if (
                 prev.title !== task.title ||
                 prev.description !== task.description ||
@@ -516,6 +560,7 @@ export default function App() {
                 (prev.status !== task.status && task.status !== 'Blocked' && task.status !== 'Done')
               ) {
                 notifyTaskUpdated(task.title, tr);
+                addNotifItem(tr?.('notif.push.taskUpdated.title') || '작업 업데이트', `"${task.title}"`, 'board');
               }
             }
           }
@@ -539,6 +584,7 @@ export default function App() {
         const newest = newComments[0];
         if (newest && newest.id !== prevLatestCommentIdRef.current && newest.authorId !== user.uid) {
           notifyCommentAdded(newest.authorName, tRef.current || undefined);
+          addNotifItem(tRef.current?.('notif.push.comment.title') || '새 코멘트', `${newest.authorName}: ${newest.text.substring(0, 50)}`, 'comments');
         }
       }
       isInitialCommentLoad.current = false;
@@ -563,6 +609,7 @@ export default function App() {
                            newest.type === 'update' ? `🚀 ${tr ? tr('announce.type.update') : '업데이트'}` :
                            `📢 ${tr ? tr('announce.type.notice') : '공지'}`;
           showNotification(typeLabel, newest.title, { tag: 'announcement' });
+          addNotifItem(typeLabel, newest.title, 'announcements');
         }
       }
       isInitialAnnouncementLoad.current = false;
@@ -1450,7 +1497,7 @@ export default function App() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden" onClick={() => { if (showProfileMenu) { setShowProfileMenu(false); setProfilePanel('main'); } }}>
+      <main className="flex-1 flex flex-col h-screen overflow-hidden" onClick={() => { if (showProfileMenu) { setShowProfileMenu(false); setProfilePanel('main'); } if (showNotifCenter) setShowNotifCenter(false); }}>
         <header className="glass-header px-4 md:px-8 py-3 md:py-5 flex items-center justify-between shrink-0 sticky top-0 z-10 transition-all">
           <div className="flex items-center gap-3">
             <button
@@ -1463,15 +1510,77 @@ export default function App() {
               {activeMenuLabel}
             </h2>
           </div>
-          {['board', 'sync', 'issues'].includes(activeTab) && (
-            <button
-              onClick={() => openCreateModal()}
-              className="flex items-center gap-2 bg-indigo-600 text-white px-3 md:px-5 py-2 md:py-2.5 rounded-xl text-sm font-semibold hover:bg-indigo-700 hover:shadow-lg hover:-translate-y-0.5 transition-all outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 shrink-0"
-            >
-              <Plus className="w-4 h-4" />
-              <span className="hidden sm:inline">{t('board.newTask')}</span>
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {/* Notification Bell */}
+            <div className="relative">
+              <button
+                onClick={() => setShowNotifCenter(!showNotifCenter)}
+                className="p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition-colors relative"
+              >
+                <Bell className="w-5 h-5" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[10px] font-bold w-4.5 h-4.5 flex items-center justify-center rounded-full min-w-[18px] px-1">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
+              </button>
+
+              {showNotifCenter && (
+                <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 bg-white rounded-xl border border-slate-200 shadow-2xl z-50 max-h-[70vh] flex flex-col">
+                  <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+                    <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                      <BellRing className="w-4 h-4 text-indigo-500" />
+                      {t('notifCenter.title')}
+                    </h3>
+                    <div className="flex items-center gap-2">
+                      {unreadCount > 0 && (
+                        <button onClick={markAllRead} className="text-xs text-indigo-600 hover:text-indigo-800 font-medium">
+                          {t('notifCenter.markAllRead')}
+                        </button>
+                      )}
+                      <button onClick={() => setShowNotifCenter(false)} className="text-slate-400 hover:text-slate-600">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="overflow-y-auto flex-1">
+                    {notifHistory.length === 0 ? (
+                      <div className="p-8 text-center text-slate-400 text-sm">{t('notifCenter.empty')}</div>
+                    ) : (
+                      notifHistory.map(n => (
+                        <button
+                          key={n.id}
+                          onClick={() => { setActiveTab(n.tab); setShowNotifCenter(false); setNotifHistory(prev => { const next = prev.map(x => x.id === n.id ? { ...x, read: true } : x); localStorage.setItem('notif_history', JSON.stringify(next)); return next; }); }}
+                          className={`w-full text-left px-4 py-3 border-b border-slate-100 hover:bg-slate-50 transition-colors ${!n.read ? 'bg-indigo-50/50' : ''}`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${!n.read ? 'bg-indigo-500' : 'bg-slate-200'}`} />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-slate-800 truncate">{n.title}</p>
+                              <p className="text-xs text-slate-500 truncate mt-0.5">{n.body}</p>
+                              <p className="text-[10px] text-slate-400 mt-1">
+                                {new Date(n.time).toLocaleString(language === 'ko' ? 'ko-KR' : 'en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                              </p>
+                            </div>
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {['board', 'sync', 'issues'].includes(activeTab) && (
+              <button
+                onClick={() => openCreateModal()}
+                className="flex items-center gap-2 bg-indigo-600 text-white px-3 md:px-5 py-2 md:py-2.5 rounded-xl text-sm font-semibold hover:bg-indigo-700 hover:shadow-lg hover:-translate-y-0.5 transition-all outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 shrink-0"
+              >
+                <Plus className="w-4 h-4" />
+                <span className="hidden sm:inline">{t('board.newTask')}</span>
+              </button>
+            )}
+          </div>
         </header>
 
         {firestoreError && (
