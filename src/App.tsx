@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion } from 'motion/react';
 import { useLanguage } from './i18n';
 import { DriveFile, getOrCreateAppFolder, listFiles, uploadFile, deleteFile, formatFileSize, getFileTypeIcon } from './driveService';
-import { Task, Status, Priority, Comment } from './types';
+import { Task, Status, Priority, Comment, CalendarEvent, AiResult } from './types';
 import { manualContent, Language } from './manualContent';
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from 'firebase/auth';
+import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, User } from 'firebase/auth';
 import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, query, orderBy, limit } from 'firebase/firestore';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import {
@@ -17,10 +17,12 @@ import {
   getPermissionStatus,
   showNotification,
   notifyTaskCreated,
+  notifyTaskUpdated,
   notifyTaskBlocked,
   notifyTaskCompleted,
   notifyCommentAdded,
   notifyFeedbackRequest,
+  notifyDueDateReminder,
 } from './notifications';
 
 import {
@@ -79,6 +81,12 @@ import {
 } from 'lucide-react';
 
 // Firebase config from environment variables
+const requiredEnvVars = ['VITE_FIREBASE_API_KEY', 'VITE_FIREBASE_AUTH_DOMAIN', 'VITE_FIREBASE_PROJECT_ID', 'VITE_FIREBASE_APP_ID'] as const;
+const missingVars = requiredEnvVars.filter(key => !import.meta.env[key]);
+if (missingVars.length > 0) {
+  console.error(`Missing required environment variables: ${missingVars.join(', ')}`);
+}
+
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -98,7 +106,7 @@ const PRIORITIES: Priority[] = ['High', 'Medium', 'Low'];
 
 export default function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(null);
 
@@ -108,6 +116,7 @@ export default function App() {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [profilePanel, setProfilePanel] = useState<'main' | 'notifications' | 'install'>('main');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [firestoreError, setFirestoreError] = useState<string | null>(null);
 
   // Tutorial State
   const [showTutorial, setShowTutorial] = useState(false);
@@ -161,15 +170,19 @@ export default function App() {
   const isThisWeek = (dateStr: string) => {
     if (!dateStr) return false;
     const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return false;
     const now = new Date();
     const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
-    const endOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() + (6 - now.getDay()));
+    startOfWeek.setHours(0, 0, 0, 0);
+    const endOfWeek = new Date(startOfWeek);
+    endOfWeek.setDate(endOfWeek.getDate() + 6);
+    endOfWeek.setHours(23, 59, 59, 999);
     return d >= startOfWeek && d <= endOfWeek;
   };
 
   // Calendar State
   const [isCalendarConnected, setIsCalendarConnected] = useState(false);
-  const [calendarEvents, setCalendarEvents] = useState<any[]>([]);
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [isLoadingEvents, setIsLoadingEvents] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(new Date());
 
@@ -187,7 +200,7 @@ export default function App() {
   const [notifTestSent, setNotifTestSent] = useState(false);
 
   // PWA Install State - pick up early-captured event from main.tsx
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(() => {
+  const [deferredPrompt, setDeferredPrompt] = useState<Event | null>(() => {
     const early = (window as any).__pwaInstallPrompt;
     if (early) {
       (window as any).__pwaInstallPrompt = null;
@@ -223,12 +236,23 @@ export default function App() {
     };
   }, []);
 
+  // Close mobile sidebar on resize to desktop
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth >= 768) setIsMobileSidebarOpen(false);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const [installMessage, setInstallMessage] = useState<string | null>(null);
+  const installTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleInstallApp = async () => {
     if (!deferredPrompt) {
       setInstallMessage(language === 'ko' ? '아래의 설치 방법을 참고해주세요.' : 'Please refer to the installation guide below.');
-      setTimeout(() => setInstallMessage(null), 3000);
+      if (installTimerRef.current) clearTimeout(installTimerRef.current);
+      installTimerRef.current = setTimeout(() => setInstallMessage(null), 3000);
       return;
     }
     try {
@@ -269,7 +293,7 @@ export default function App() {
   // AI Automation State
   const [aiInputText, setAiInputText] = useState("");
   const [isAiLoading, setIsAiLoading] = useState(false);
-  const [aiResult, setAiResult] = useState<any>(null);
+  const [aiResult, setAiResult] = useState<AiResult | null>(null);
 
   const handleAiAction = async (type: 'meeting' | 'action') => {
     if (!aiInputText.trim()) return;
@@ -326,11 +350,13 @@ export default function App() {
   }, []);
 
   // Track initial load to skip notifications on first snapshot
+  const tRef = useRef<((key: string) => string) | null>(null);
   const isInitialTaskLoad = useRef(true);
   const isInitialCommentLoad = useRef(true);
   const prevTasksRef = useRef<Task[]>([]);
+  const localChangeIdsRef = useRef<Set<string>>(new Set());
   const notifSettingsRef = useRef(notifSettings);
-  const prevCommentCountRef = useRef(0);
+  const prevLatestCommentIdRef = useRef<string | null>(null);
 
   // Keep ref in sync without triggering re-subscription
   useEffect(() => {
@@ -355,19 +381,32 @@ export default function App() {
         const prevMap = new Map<string, Task>(prevTasksRef.current.map(t => [t.id, t]));
 
         for (const task of newTasks) {
+          // Skip notifications for changes made by the current user
+          if (localChangeIdsRef.current.has(task.id)) {
+            localChangeIdsRef.current.delete(task.id);
+            continue;
+          }
+          const tr = tRef.current || undefined;
           if (!prevIds.has(task.id)) {
-            notifyTaskCreated(task.title, task.assignee);
+            notifyTaskCreated(task.title, task.assignee, tr);
           } else {
             const prev = prevMap.get(task.id);
             if (prev) {
               if (prev.status !== 'Blocked' && task.status === 'Blocked') {
-                notifyTaskBlocked(task.title);
-              }
-              if (prev.status !== 'Done' && task.status === 'Done') {
-                notifyTaskCompleted(task.title);
-              }
-              if (prev.feedbackStatus !== task.feedbackStatus && task.feedbackStatus) {
-                notifyFeedbackRequest(task.title, task.feedbackStatus);
+                notifyTaskBlocked(task.title, tr);
+              } else if (prev.status !== 'Done' && task.status === 'Done') {
+                notifyTaskCompleted(task.title, tr);
+              } else if (prev.feedbackStatus !== task.feedbackStatus && task.feedbackStatus) {
+                notifyFeedbackRequest(task.title, task.feedbackStatus, tr);
+              } else if (
+                prev.title !== task.title ||
+                prev.description !== task.description ||
+                prev.assignee !== task.assignee ||
+                prev.dueDate !== task.dueDate ||
+                prev.priority !== task.priority ||
+                (prev.status !== task.status && task.status !== 'Blocked' && task.status !== 'Done')
+              ) {
+                notifyTaskUpdated(task.title, tr);
               }
             }
           }
@@ -378,6 +417,7 @@ export default function App() {
       setTasks(newTasks);
     }, (error) => {
       console.error("Firestore Tasks Error:", error);
+      setFirestoreError(t('error.firestoreTasks') || 'Failed to load tasks. Please refresh.');
     });
 
     // Limit comments to latest 50 to reduce reads
@@ -387,18 +427,17 @@ export default function App() {
 
       // Notify for new comments (skip initial load)
       if (!isInitialCommentLoad.current && notifSettingsRef.current.enabled) {
-        if (newComments.length > prevCommentCountRef.current) {
-          const newest = newComments[0];
-          if (newest && newest.authorId !== user.uid) {
-            notifyCommentAdded(newest.authorName);
-          }
+        const newest = newComments[0];
+        if (newest && newest.id !== prevLatestCommentIdRef.current && newest.authorId !== user.uid) {
+          notifyCommentAdded(newest.authorName, tRef.current || undefined);
         }
       }
       isInitialCommentLoad.current = false;
-      prevCommentCountRef.current = newComments.length;
+      prevLatestCommentIdRef.current = newComments[0]?.id ?? null;
       setComments(newComments);
     }, (error) => {
       console.error("Firestore Comments Error:", error);
+      setFirestoreError(t('error.firestoreComments') || 'Failed to load comments. Please refresh.');
     });
 
     return () => {
@@ -406,6 +445,29 @@ export default function App() {
       unsubscribeComments();
     };
   }, [isAuthReady, user]);
+
+  // Due date reminder: check every 30 minutes for tasks due within 24 hours
+  const dueDateNotifiedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!user) return;
+    const checkDueDates = () => {
+      if (!notifSettingsRef.current.enabled) return;
+      const now = Date.now();
+      const oneDayMs = 24 * 60 * 60 * 1000;
+      for (const task of tasks) {
+        if (!task.dueDate || task.status === 'Done') continue;
+        const due = new Date(task.dueDate).getTime();
+        const timeLeft = due - now;
+        if (timeLeft > 0 && timeLeft <= oneDayMs && !dueDateNotifiedRef.current.has(task.id)) {
+          dueDateNotifiedRef.current.add(task.id);
+          notifyDueDateReminder(task.title, task.dueDate, tRef.current || undefined);
+        }
+      }
+    };
+    checkDueDates();
+    const interval = setInterval(checkDueDates, 30 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [user, tasks]);
 
   const handleCommentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -432,6 +494,25 @@ export default function App() {
   }, [currentMonth, isCalendarConnected, googleAccessToken]);
 
   const { t, language, setLanguage } = useLanguage();
+  tRef.current = t;
+
+  const handleTokenExpired = useCallback(() => {
+    setGoogleAccessToken(null);
+    setIsCalendarConnected(false);
+    alert(language === 'ko'
+      ? 'Google 인증이 만료되었습니다. 다시 로그인해주세요.'
+      : 'Google authentication expired. Please sign in again.');
+  }, [language]);
+
+  const assigneeList = useMemo(() => assigneeList, [tasks]);
+  const tasksByStatus = useMemo(() => {
+    const map: Record<string, Task[]> = {};
+    for (const col of COLUMNS) map[col] = [];
+    for (const task of tasks) {
+      if (map[task.status]) map[task.status].push(task);
+    }
+    return map;
+  }, [tasks]);
 
   const menuCategories = [
     {
@@ -502,9 +583,7 @@ export default function App() {
       const files = await listFiles(googleAccessToken, fId);
       setDriveFiles(files);
     } catch (e: any) {
-      if (e.message === 'TOKEN_EXPIRED') {
-        setGoogleAccessToken(null);
-      }
+      if (e.message === 'TOKEN_EXPIRED') handleTokenExpired();
       console.error('Drive error:', e);
     } finally {
       setIsDriveLoading(false);
@@ -522,13 +601,19 @@ export default function App() {
     setIsUploading(true);
     try {
       const fId = driveFolderId || await getOrCreateAppFolder(googleAccessToken);
+      if (!fId) throw new Error('Failed to get or create Drive folder');
       if (!driveFolderId) setDriveFolderId(fId);
+      const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB
       for (const file of Array.from(files)) {
+        if (file.size > MAX_FILE_SIZE) {
+          alert(language === 'ko' ? `"${file.name}" 파일이 25MB를 초과합니다.` : `"${file.name}" exceeds the 25MB limit.`);
+          continue;
+        }
         await uploadFile(googleAccessToken, fId, file);
       }
       await loadDriveFiles();
     } catch (e: any) {
-      if (e.message === 'TOKEN_EXPIRED') setGoogleAccessToken(null);
+      if (e.message === 'TOKEN_EXPIRED') handleTokenExpired();
       console.error('Upload error:', e);
     } finally {
       setIsUploading(false);
@@ -536,12 +621,13 @@ export default function App() {
   };
 
   const handleDeleteFile = async (fileId: string, fileName: string) => {
-    if (!googleAccessToken || !confirm(`"${fileName}" 파일을 삭제하시겠습니까?`)) return;
+    const confirmMsg = language === 'ko' ? `"${fileName}" 파일을 삭제하시겠습니까?` : `Delete "${fileName}"?`;
+    if (!googleAccessToken || !confirm(confirmMsg)) return;
     try {
       await deleteFile(googleAccessToken, fileId);
       setDriveFiles(prev => prev.filter(f => f.id !== fileId));
     } catch (e: any) {
-      if (e.message === 'TOKEN_EXPIRED') setGoogleAccessToken(null);
+      if (e.message === 'TOKEN_EXPIRED') handleTokenExpired();
       console.error('Delete error:', e);
     }
   };
@@ -555,9 +641,11 @@ export default function App() {
           updates.completedAt = Date.now();
         }
       }
+      localChangeIdsRef.current.add(taskId);
       await setDoc(doc(collection(db, 'tasks'), taskId), updates, { merge: true });
       setIsModalOpen(false);
     } catch (e) {
+      localChangeIdsRef.current.delete(taskId);
       console.error('Error updating feedback status:', e);
     }
   };
@@ -585,6 +673,11 @@ export default function App() {
       setIsCalendarConnected(false);
       setCalendarEvents([]);
       setTasks([]);
+      setComments([]);
+      setDriveFiles([]);
+      setDriveFolderId(null);
+      setAiResult(null);
+      setFirestoreError(null);
     } catch (error) {
       console.error("Logout Error:", error);
     }
@@ -604,8 +697,7 @@ export default function App() {
       });
       
       if (res.status === 401) {
-        setIsCalendarConnected(false);
-        setGoogleAccessToken(null);
+        handleTokenExpired();
         return;
       }
       const data = await res.json();
@@ -628,15 +720,18 @@ export default function App() {
   const handleDrop = async (e: React.DragEvent, status: Status) => {
     e.preventDefault();
     const taskId = e.dataTransfer.getData('taskId');
+    if (!taskId || !user) return;
     const taskToUpdate = tasks.find(t => t.id === taskId);
-    if (!taskToUpdate || !user) return;
+    if (!taskToUpdate) return;
 
     try {
+      localChangeIdsRef.current.add(taskId);
       await setDoc(doc(db, 'tasks', taskId), {
         ...taskToUpdate,
         status
       });
     } catch (error) {
+      localChangeIdsRef.current.delete(taskId);
       console.error("Error updating task status:", error);
       alert("Failed to update task. Please check permissions.");
     }
@@ -645,27 +740,33 @@ export default function App() {
   const saveTask = async (taskData: Omit<Task, 'id' | 'createdAt' | 'createdBy'>) => {
     if (!user) return;
     
+    let changeId: string | null = null;
     try {
       if (editingTask && editingTask.id) {
         // Update existing
+        changeId = editingTask.id;
         const updatedTask = {
           ...editingTask,
           ...taskData
         };
+        localChangeIdsRef.current.add(changeId);
         await setDoc(doc(db, 'tasks', editingTask.id), updatedTask);
       } else {
         // Create new
-        const newId = Math.random().toString(36).substring(2, 9);
+        const newId = crypto.randomUUID();
+        changeId = newId;
         const newTask = {
           ...taskData,
           createdAt: Date.now(),
           createdBy: user.uid
         };
+        localChangeIdsRef.current.add(changeId);
         await setDoc(doc(db, 'tasks', newId), newTask);
       }
       setIsModalOpen(false);
       setEditingTask(null);
     } catch (error) {
+      if (changeId) localChangeIdsRef.current.delete(changeId);
       console.error("Error saving task:", error);
       alert("Failed to save task. Please check permissions.");
     }
@@ -876,8 +977,8 @@ export default function App() {
                         <button
                           key={item.id}
                           onClick={() => {
-                            if (item.id === 'docs') {
-                              window.open('https://drive.google.com/drive/folders/1A9Oms1S0tbJEWD3QfEivyDFj4FCPjTc9?usp=drive_link', '_blank');
+                            if (item.id === 'docs' && driveFolderId) {
+                              window.open(`https://drive.google.com/drive/folders/${driveFolderId}`, '_blank');
                             } else {
                               setActiveTab(item.id);
                             }
@@ -1226,6 +1327,13 @@ export default function App() {
           )}
         </header>
 
+        {firestoreError && (
+          <div className="mx-4 md:mx-8 mt-2 px-4 py-2 bg-red-50 border border-red-200 text-red-700 rounded-lg flex items-center justify-between text-sm">
+            <span>{firestoreError}</span>
+            <button onClick={() => setFirestoreError(null)} className="ml-2 text-red-400 hover:text-red-600">&times;</button>
+          </div>
+        )}
+
         <div className="flex-1 overflow-auto p-4 md:p-8 relative">
           {activeTab === 'board' && (
             <div className="flex gap-4 md:gap-6 h-full items-start overflow-x-auto pb-4 snap-x snap-mandatory md:snap-none">
@@ -1245,11 +1353,11 @@ export default function App() {
                       {column}
                     </h3>
                     <span className="bg-white/60 text-slate-500 text-xs font-medium px-2 py-1 rounded-full border border-white/60">
-                      {tasks.filter(t => t.status === column).length}
+                      {(tasksByStatus[column] || []).length}
                     </span>
                   </div>
                   <div className="p-3 flex-1 overflow-y-auto space-y-3">
-                    {tasks.filter(t => t.status === column).map(task => (
+                    {(tasksByStatus[column] || []).map(task => (
                       <TaskCard 
                         key={task.id} 
                         task={task} 
@@ -1261,7 +1369,7 @@ export default function App() {
                       onClick={() => openCreateModal(column)}
                       className="w-full py-2 flex items-center justify-center gap-2 text-sm text-slate-500 hover:text-slate-700 hover:bg-white/40 rounded-xl transition-colors border border-dashed border-white/60"
                     >
-                      <Plus className="w-4 h-4" /> Add Task
+                      <Plus className="w-4 h-4" /> {language === 'ko' ? '작업 추가' : 'Add Task'}
                     </button>
                   </div>
                 </div>
@@ -1326,9 +1434,9 @@ export default function App() {
               </div>
               
               <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                 <h3 className="text-lg font-semibold mb-4">Team Workload</h3>
+                 <h3 className="text-lg font-semibold mb-4">{language === 'ko' ? '팀 작업량' : 'Team Workload'}</h3>
                  <div className="space-y-4">
-                   {Array.from(new Set(tasks.map(t => t.assignee).filter(Boolean))).map(assignee => {
+                   {assigneeList.map(assignee => {
                      const userTasks = tasks.filter(t => t.assignee === assignee);
                      const done = userTasks.filter(t => t.status === 'Done').length;
                      const inProgress = userTasks.filter(t => t.status === 'In Progress').length;
@@ -1359,7 +1467,7 @@ export default function App() {
                 <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
                   <h3 className="font-semibold text-slate-800 flex items-center gap-2">
                     <AlertCircle className="w-5 h-5 text-red-500" />
-                    Critical Issues & Blockers
+                    {language === 'ko' ? '주요 이슈 & 차단 항목' : 'Critical Issues & Blockers'}
                   </h3>
                 </div>
                 <div className="divide-y divide-slate-200">
@@ -1414,7 +1522,7 @@ export default function App() {
                   {tasks.filter(t => t.status === 'Blocked' || t.priority === 'High').length === 0 && (
                     <div className="p-8 text-center text-slate-500">
                       <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto mb-3" />
-                      <p>No critical issues or blockers right now.</p>
+                      <p>{language === 'ko' ? '현재 주요 이슈나 차단 항목이 없습니다.' : 'No critical issues or blockers right now.'}</p>
                     </div>
                   )}
                 </div>
@@ -1887,7 +1995,7 @@ export default function App() {
                   </div>
                 </div>
                 <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {Array.from(new Set(tasks.map(t => t.assignee).filter(Boolean))).map(assignee => {
+                  {assigneeList.map(assignee => {
                     const userTasks = tasks.filter(t => t.assignee === assignee);
                     const done = userTasks.filter(t => t.status === 'Done').length;
                     const inProgress = userTasks.filter(t => t.status === 'In Progress').length;
@@ -1935,7 +2043,7 @@ export default function App() {
                     );
                   })}
                   
-                  {Array.from(new Set(tasks.map(t => t.assignee).filter(Boolean))).length === 0 && (
+                  {assigneeList.length === 0 && (
                      <div className="col-span-full py-12 text-center text-slate-400">
                         <Users className="w-12 h-12 mx-auto mb-3 opacity-20" />
                         <p>아직 담당자가 지정된 태스크가 없습니다.</p>
@@ -2073,6 +2181,20 @@ export default function App() {
                     {/* Notion-style Markdown Rendering (Simplified) */}
                     <div className="space-y-6 text-slate-700 leading-relaxed font-medium">
                       {manualData.content.split('\n').map((line, i) => {
+                        const renderInline = (text: string, boldClass = 'font-bold') => {
+                          const parts: React.ReactNode[] = [];
+                          const regex = /\*\*(.*?)\*\*|`(.*?)`/g;
+                          let lastIndex = 0;
+                          let match;
+                          while ((match = regex.exec(text)) !== null) {
+                            if (match.index > lastIndex) parts.push(text.slice(lastIndex, match.index));
+                            if (match[1] !== undefined) parts.push(<strong key={`${i}-b-${match.index}`} className={boldClass}>{match[1]}</strong>);
+                            if (match[2] !== undefined) parts.push(<code key={`${i}-c-${match.index}`} className="bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded text-sm">{match[2]}</code>);
+                            lastIndex = regex.lastIndex;
+                          }
+                          if (lastIndex < text.length) parts.push(text.slice(lastIndex));
+                          return parts;
+                        };
                         if (line.startsWith('## ')) {
                           return <h2 key={i} className="text-xl md:text-2xl font-bold text-slate-800 mt-10 mb-4 flex items-center gap-2">{line.replace('## ', '')}</h2>;
                         }
@@ -2080,17 +2202,17 @@ export default function App() {
                           return (
                             <div key={i} className="flex items-start gap-3 my-2 bg-slate-50 p-3 rounded-lg border border-slate-100">
                               <div className="w-5 h-5 rounded border-2 border-slate-300 mt-0.5 bg-white flex-shrink-0"></div>
-                              <span dangerouslySetInnerHTML={{__html: line.replace('- [ ]', '').replace(/\*\*(.*?)\*\*/g, '<strong class="text-slate-900">$1</strong>').replace(/`(.*?)`/g, '<code class="bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded text-sm">$1</code>')}} />
+                              <span>{renderInline(line.replace('- [ ]', ''), 'text-slate-900')}</span>
                             </div>
                           );
                         }
                         if (line.startsWith('- ')) {
-                          return <li key={i} className="ml-5 my-1.5 list-disc marker:text-indigo-400" dangerouslySetInnerHTML={{__html: line.substring(2).replace(/\*\*(.*?)\*\*/g, '<strong class="text-slate-900 font-bold">$1</strong>')}} />;
+                          return <li key={i} className="ml-5 my-1.5 list-disc marker:text-indigo-400">{renderInline(line.substring(2), 'text-slate-900 font-bold')}</li>;
                         }
                         if (line.match(/^\d+\. /)) {
-                          return <li key={i} className="ml-5 my-2 list-decimal font-semibold marker:text-slate-400 marker:font-bold" dangerouslySetInnerHTML={{__html: line.replace(/^\d+\. /, '').replace(/\*\*(.*?)\*\*/g, '<strong class="text-indigo-700">$1</strong>')}} />;
+                          return <li key={i} className="ml-5 my-2 list-decimal font-semibold marker:text-slate-400 marker:font-bold">{renderInline(line.replace(/^\d+\. /, ''), 'text-indigo-700')}</li>;
                         }
-                        return line.trim() ? <p key={i} className="my-3" dangerouslySetInnerHTML={{__html: line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')}}></p> : <br key={i}/>;
+                        return line.trim() ? <p key={i} className="my-3">{renderInline(line)}</p> : <br key={i}/>;
                       })}
                     </div>
                  </div>
@@ -2338,7 +2460,7 @@ export default function App() {
           <div className="bg-white rounded-t-2xl sm:rounded-xl shadow-xl w-full sm:max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
             <div className="px-4 sm:px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
               <h3 className="text-lg font-semibold text-slate-800">
-                {editingTask.id ? 'Edit Task' : 'Create New Task'}
+                {editingTask.id ? (language === 'ko' ? '작업 수정' : 'Edit Task') : (language === 'ko' ? '새 작업 만들기' : 'Create New Task')}
               </h3>
               <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600">
                 <X className="w-5 h-5" />
@@ -2444,7 +2566,7 @@ export default function App() {
                          </button>
                        </>
                      )}
-                     <button type="button" onClick={() => updateFeedbackStatus(editingTask.id, 'approved', 'Done')} className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition-colors ${editingTask.feedbackStatus === 'approved' ? 'bg-emerald-100 border-emerald-200 text-emerald-700' : 'bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-100'}`}>
+                     <button type="button" onClick={() => updateFeedbackStatus(editingTask.id, 'approved')} className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition-colors ${editingTask.feedbackStatus === 'approved' ? 'bg-emerald-100 border-emerald-200 text-emerald-700' : 'bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-100'}`}>
                        <CheckCircle2 className="w-3.5 h-3.5 inline mr-1 -mt-0.5" /> {t('feedback.approveBtn')}
                      </button>
                    </div>
@@ -2460,7 +2582,7 @@ export default function App() {
                 <button 
                   type="button"
                   onClick={() => {
-                    if (confirm('Are you sure you want to delete this task?')) {
+                    if (confirm(language === 'ko' ? '이 작업을 삭제하시겠습니까?' : 'Are you sure you want to delete this task?')) {
                       handleDeleteTask(editingTask.id);
                     }
                   }}
