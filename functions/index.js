@@ -44,21 +44,14 @@ exports.onAnnouncementCreated = onDocumentCreated(
       return;
     }
 
-    // Filter out the author's tokens (they already got a local notification)
+    // Collect all tokens (send to all devices including author's other devices)
     const tokens = [];
     const tokenDocs = [];
     tokensSnapshot.forEach((doc) => {
       const tokenData = doc.data();
-      if (tokenData.uid !== announcement.authorId) {
-        tokens.push(tokenData.token);
-        tokenDocs.push(doc);
-      }
+      tokens.push(tokenData.token);
+      tokenDocs.push(doc);
     });
-
-    if (tokens.length === 0) {
-      console.log('No tokens to send to (author filtered)');
-      return;
-    }
 
     // Send to all tokens
     const message = {
