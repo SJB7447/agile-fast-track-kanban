@@ -1932,55 +1932,71 @@ export default function App() {
                   <Clock className="w-5 h-5 text-indigo-500" />
                   {t('home.todayTasks')}
                 </h3>
+                {(() => {
+                  const today = new Date().toISOString().split('T')[0];
+                  const todayTasks = tasks.filter(tk => tk.dueDate === today || tk.status === 'In Progress' || tk.status === 'Blocked');
+                  const doneTasks = todayTasks.filter(tk => tk.status === 'Done');
+                  const inProgressTasks = todayTasks.filter(tk => tk.status === 'In Progress');
+                  const blockedTasks = todayTasks.filter(tk => tk.status === 'Blocked');
+                  const todoTasks = tasks.filter(tk => tk.dueDate === today && tk.status === 'To Do');
+                  return (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div className="bg-emerald-50 p-4 rounded-lg border border-emerald-100">
                     <h4 className="font-medium text-emerald-800 mb-2 flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4" /> {t('board.done')}
+                      <CheckCircle2 className="w-4 h-4" /> {t('status.done')}
                     </h4>
                     <ul className="space-y-2">
-                      {tasks.filter(t => t.status === 'Done').slice(0, 5).map(t => (
-                        <li key={t.id} className="text-sm text-emerald-700 bg-white px-3 py-2 rounded shadow-sm border border-emerald-100">
-                          <span className="font-medium">{t.assignee}:</span> {t.title}
+                      {doneTasks.slice(0, 5).map(tk => (
+                        <li key={tk.id} className="text-sm text-emerald-700 bg-white px-3 py-2 rounded shadow-sm border border-emerald-100 cursor-pointer hover:bg-emerald-50" onClick={() => openEditModal(tk)}>
+                          <span className="font-medium">{tk.assignee}:</span> {tk.title}
                         </li>
                       ))}
-                      {tasks.filter(t => t.status === 'Done').length === 0 && (
+                      {todoTasks.length > 0 && todoTasks.map(tk => (
+                        <li key={tk.id} className="text-sm text-slate-600 bg-white px-3 py-2 rounded shadow-sm border border-slate-200 cursor-pointer hover:bg-slate-50" onClick={() => openEditModal(tk)}>
+                          <span className="font-medium">{tk.assignee}:</span> {tk.title}
+                          <span className="text-[10px] ml-1 text-slate-400">{t('status.todo')}</span>
+                        </li>
+                      ))}
+                      {doneTasks.length === 0 && todoTasks.length === 0 && (
                         <li className="text-sm text-emerald-600/80 font-medium">{t('home.noTasks')}</li>
                       )}
                     </ul>
                   </div>
                   <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
                     <h4 className="font-medium text-blue-800 mb-2 flex items-center gap-2">
-                      <Calendar className="w-4 h-4" /> {t('board.inProgress')}
+                      <Calendar className="w-4 h-4" /> {t('status.inProgress')}
                     </h4>
                     <ul className="space-y-2">
-                      {tasks.filter(t => t.status === 'In Progress').map(t => (
-                        <li key={t.id} className="text-sm text-blue-700 bg-white px-3 py-2 rounded shadow-sm border border-blue-100">
-                          <span className="font-medium">{t.assignee}:</span> {t.title}
+                      {inProgressTasks.map(tk => (
+                        <li key={tk.id} className="text-sm text-blue-700 bg-white px-3 py-2 rounded shadow-sm border border-blue-100 cursor-pointer hover:bg-blue-50" onClick={() => openEditModal(tk)}>
+                          <span className="font-medium">{tk.assignee}:</span> {tk.title}
                         </li>
                       ))}
-                      {tasks.filter(t => t.status === 'In Progress').length === 0 && (
+                      {inProgressTasks.length === 0 && (
                         <li className="text-sm text-blue-600/80 font-medium">{t('home.noTasks')}</li>
                       )}
                     </ul>
                   </div>
                   <div className="bg-red-50 p-4 rounded-lg border border-red-100">
                     <h4 className="font-medium text-red-800 mb-2 flex items-center gap-2">
-                      <AlertOctagon className="w-4 h-4" /> {t('board.blocked')}
+                      <AlertOctagon className="w-4 h-4" /> {t('status.blocked')}
                     </h4>
                     <ul className="space-y-2">
-                      {tasks.filter(t => t.status === 'Blocked').map(t => (
-                        <li key={t.id} className="text-sm text-red-700 bg-white px-3 py-2 rounded shadow-sm border border-red-100">
-                          <span className="font-medium">{t.assignee}:</span> {t.title}
+                      {blockedTasks.map(tk => (
+                        <li key={tk.id} className="text-sm text-red-700 bg-white px-3 py-2 rounded shadow-sm border border-red-100 cursor-pointer hover:bg-red-50" onClick={() => openEditModal(tk)}>
+                          <span className="font-medium">{tk.assignee}:</span> {tk.title}
                         </li>
                       ))}
-                      {tasks.filter(t => t.status === 'Blocked').length === 0 && (
+                      {blockedTasks.length === 0 && (
                         <li className="text-sm text-red-600/80 font-medium">{t('issues.goodJob')}</li>
                       )}
                     </ul>
                   </div>
                 </div>
+                  );
+                })()}
               </div>
-              
+
               <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
                  <h3 className="text-lg font-semibold mb-4">{t('misc.teamWorkload')}</h3>
                  <div className="space-y-4">
