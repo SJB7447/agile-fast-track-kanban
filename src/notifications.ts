@@ -39,7 +39,7 @@ export function saveSettings(settings: NotificationSettings): void {
 export async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
   if (!('serviceWorker' in navigator)) return null;
   try {
-    const registration = await navigator.serviceWorker.register('/sw.js');
+    const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
     console.log('SW registered:', registration.scope);
     return registration;
   } catch (err) {

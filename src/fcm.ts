@@ -24,11 +24,10 @@ export async function initFCM(
 
     messagingInstance = getMessaging(app);
 
-    // Register the FCM service worker (config is hardcoded in the SW file)
+    // Use the already-registered unified service worker
     let swRegistration: ServiceWorkerRegistration | undefined;
     if ('serviceWorker' in navigator) {
-      swRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
-      await navigator.serviceWorker.ready;
+      swRegistration = await navigator.serviceWorker.ready as ServiceWorkerRegistration;
     }
 
     // Get FCM token
