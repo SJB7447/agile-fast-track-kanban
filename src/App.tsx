@@ -8,6 +8,7 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, User } from 'firebase/auth';
 import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, query, orderBy, limit, addDoc, getDocs, getDoc } from 'firebase/firestore';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { initFCM, onForegroundMessage, removeFCMToken } from './fcm';
 import {
   NotificationSettings,
   defaultSettings as defaultNotifSettings,
@@ -409,11 +410,37 @@ export default function App() {
     return () => unsubscribe();
   }, [checkAndSetAdmin]);
 
-  // Auto-request notification permission after login
+  // FCM token ref
+  const fcmTokenRef = useRef<string | null>(null);
+
+  // Auto-request notification permission and init FCM after login
   useEffect(() => {
-    if (user && 'Notification' in window && Notification.permission === 'default') {
-      requestPermission().then(perm => setNotifPermission(perm));
-    }
+    if (!user) return;
+
+    const setupNotifications = async () => {
+      // Request permission if not yet granted
+      if ('Notification' in window && Notification.permission === 'default') {
+        const perm = await requestPermission();
+        setNotifPermission(perm);
+        if (perm !== 'granted') return;
+      }
+
+      // Initialize FCM
+      const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
+      if (vapidKey && Notification.permission === 'granted') {
+        const token = await initFCM(app, db, user.uid, vapidKey, firebaseConfig);
+        fcmTokenRef.current = token;
+      }
+    };
+
+    setupNotifications();
+
+    // Listen for foreground FCM messages
+    const unsubForeground = onForegroundMessage(app, (title, body) => {
+      showNotification(title, body, { tag: 'fcm-foreground' });
+    });
+
+    return () => { unsubForeground?.(); };
   }, [user]);
 
   // Track initial load to skip notifications on first snapshot
@@ -770,6 +797,8 @@ export default function App() {
 
   const handleLogout = async () => {
     try {
+      await removeFCMToken(db, fcmTokenRef.current);
+      fcmTokenRef.current = null;
       await signOut(auth);
       setGoogleAccessToken(null);
       setIsCalendarConnected(false);
