@@ -2,11 +2,11 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { motion } from 'motion/react';
 import { useLanguage } from './i18n';
 import { DriveFile, getOrCreateAppFolder, listFiles, uploadFile, deleteFile, formatFileSize, getFileTypeIcon } from './driveService';
-import { Task, Status, Priority, Comment, CalendarEvent, AiResult } from './types';
+import { Task, Status, Priority, Comment, CalendarEvent, AiResult, Announcement } from './types';
 import { manualContent, Language } from './manualContent';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, User } from 'firebase/auth';
-import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, query, orderBy, limit } from 'firebase/firestore';
+import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, query, orderBy, limit, addDoc } from 'firebase/firestore';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import {
   NotificationSettings,
@@ -78,6 +78,9 @@ import {
   MousePointerClick,
   GripHorizontal,
   Layers,
+  Megaphone,
+  Pin,
+  Trash2,
 } from 'lucide-react';
 
 // Firebase config from environment variables
@@ -166,6 +169,11 @@ export default function App() {
   // Comments State
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState("");
+
+  // Announcements State
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [showAnnouncementForm, setShowAnnouncementForm] = useState(false);
+  const [selectedAnnouncement, setSelectedAnnouncement] = useState<Announcement | null>(null);
 
   const isThisWeek = (dateStr: string) => {
     if (!dateStr) return false;
@@ -440,9 +448,19 @@ export default function App() {
       setFirestoreError(t('error.firestoreComments') || 'Failed to load comments. Please refresh.');
     });
 
+    // Announcements listener
+    const announcementsQuery = query(collection(db, 'announcements'), orderBy('createdAt', 'desc'), limit(30));
+    const unsubscribeAnnouncements = onSnapshot(announcementsQuery, (snapshot) => {
+      const items = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Announcement));
+      setAnnouncements(items);
+    }, (error) => {
+      console.error("Firestore Announcements Error:", error);
+    });
+
     return () => {
       unsubscribeTasks();
       unsubscribeComments();
+      unsubscribeAnnouncements();
     };
   }, [isAuthReady, user]);
 
@@ -518,6 +536,7 @@ export default function App() {
     {
       title: t('nav.companyHome'),
       items: [
+        { id: 'announcements', label: t('nav.item.announcements'), icon: <Megaphone className="w-[18px] h-[18px]" />, badge: announcements.filter(a => a.pinned).length || undefined },
         { id: 'sync', label: t('nav.item.today'), icon: <Clock className="w-[18px] h-[18px]" /> },
         { id: 'deadline', label: t('nav.item.deadline'), icon: <CalendarClock className="w-[18px] h-[18px]" /> },
         { id: 'issues', label: t('nav.item.issues'), icon: <AlertOctagon className="w-[18px] h-[18px]" />, badge: tasks.filter(t => t.status === 'Blocked').length },
@@ -678,6 +697,7 @@ export default function App() {
       setDriveFolderId(null);
       setAiResult(null);
       setFirestoreError(null);
+      setAnnouncements([]);
     } catch (error) {
       console.error("Logout Error:", error);
     }
@@ -1335,6 +1355,205 @@ export default function App() {
         )}
 
         <div className="flex-1 overflow-auto p-4 md:p-8 relative">
+          {activeTab === 'announcements' && (
+            <div className="max-w-3xl mx-auto space-y-6">
+              {/* Header */}
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold flex items-center gap-2">
+                  <Megaphone className="w-5 h-5 text-indigo-500" />
+                  {t('announce.title')}
+                </h3>
+                {user && (
+                  <button
+                    onClick={() => { setShowAnnouncementForm(!showAnnouncementForm); setSelectedAnnouncement(null); }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-500 text-white rounded-lg text-sm font-medium hover:bg-indigo-600 transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                    {t('announce.new')}
+                  </button>
+                )}
+              </div>
+
+              {/* New Announcement Form */}
+              {showAnnouncementForm && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
+                  className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-4"
+                >
+                  <input
+                    id="announce-title"
+                    placeholder={t('announce.titlePlaceholder')}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    maxLength={100}
+                  />
+                  <textarea
+                    id="announce-content"
+                    placeholder={t('announce.contentPlaceholder')}
+                    rows={5}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                  />
+                  <div className="flex items-center gap-3">
+                    <select id="announce-type" className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                      <option value="notice">{t('announce.type.notice')}</option>
+                      <option value="update">{t('announce.type.update')}</option>
+                      <option value="urgent">{t('announce.type.urgent')}</option>
+                    </select>
+                    <label className="flex items-center gap-1.5 text-sm text-slate-600 cursor-pointer">
+                      <input type="checkbox" id="announce-pinned" className="rounded" />
+                      <Pin className="w-3.5 h-3.5" />
+                      {t('announce.pin')}
+                    </label>
+                    <div className="flex-1" />
+                    <button
+                      onClick={() => setShowAnnouncementForm(false)}
+                      className="px-3 py-1.5 text-sm text-slate-500 hover:text-slate-700 transition-colors"
+                    >
+                      {t('common.cancel')}
+                    </button>
+                    <button
+                      onClick={async () => {
+                        const titleEl = document.getElementById('announce-title') as HTMLInputElement;
+                        const contentEl = document.getElementById('announce-content') as HTMLTextAreaElement;
+                        const typeEl = document.getElementById('announce-type') as HTMLSelectElement;
+                        const pinnedEl = document.getElementById('announce-pinned') as HTMLInputElement;
+                        if (!titleEl.value.trim() || !contentEl.value.trim() || !user) return;
+                        try {
+                          await addDoc(collection(db, 'announcements'), {
+                            title: titleEl.value.trim(),
+                            content: contentEl.value.trim(),
+                            type: typeEl.value,
+                            authorId: user.uid,
+                            authorName: user.displayName || 'Unknown',
+                            authorPhotoURL: user.photoURL || null,
+                            createdAt: Date.now(),
+                            pinned: pinnedEl.checked,
+                          });
+                          setShowAnnouncementForm(false);
+                        } catch (e) {
+                          console.error('Failed to post announcement:', e);
+                          alert(t('announce.error'));
+                        }
+                      }}
+                      className="px-4 py-1.5 bg-indigo-500 text-white rounded-lg text-sm font-medium hover:bg-indigo-600 transition-colors"
+                    >
+                      {t('announce.post')}
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Selected Announcement Detail */}
+              {selectedAnnouncement && (
+                <motion.div
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                  className="bg-white rounded-xl border border-slate-200 shadow-sm p-6"
+                >
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                        selectedAnnouncement.type === 'urgent' ? 'bg-red-100 text-red-700' :
+                        selectedAnnouncement.type === 'update' ? 'bg-blue-100 text-blue-700' :
+                        'bg-slate-100 text-slate-600'
+                      }`}>
+                        {t(`announce.type.${selectedAnnouncement.type}`)}
+                      </span>
+                      {selectedAnnouncement.pinned && <Pin className="w-3.5 h-3.5 text-amber-500" />}
+                    </div>
+                    <button onClick={() => setSelectedAnnouncement(null)} className="text-slate-400 hover:text-slate-600">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <h4 className="text-lg font-bold text-slate-800 mb-2">{selectedAnnouncement.title}</h4>
+                  <div className="flex items-center gap-2 mb-4 text-xs text-slate-500">
+                    {selectedAnnouncement.authorPhotoURL && (
+                      <img src={selectedAnnouncement.authorPhotoURL} className="w-5 h-5 rounded-full" alt="" />
+                    )}
+                    <span>{selectedAnnouncement.authorName}</span>
+                    <span>·</span>
+                    <span>{new Date(selectedAnnouncement.createdAt).toLocaleDateString(language === 'ko' ? 'ko-KR' : 'en-US', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
+                  <div className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{selectedAnnouncement.content}</div>
+                  {selectedAnnouncement.authorId === user?.uid && (
+                    <div className="mt-4 pt-4 border-t border-slate-100 flex justify-end">
+                      <button
+                        onClick={async () => {
+                          if (!confirm(t('announce.deleteConfirm'))) return;
+                          try {
+                            await deleteDoc(doc(db, 'announcements', selectedAnnouncement.id));
+                            setSelectedAnnouncement(null);
+                          } catch (e) {
+                            console.error('Failed to delete announcement:', e);
+                          }
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        {t('common.delete')}
+                      </button>
+                    </div>
+                  )}
+                </motion.div>
+              )}
+
+              {/* Announcement List */}
+              {!selectedAnnouncement && (
+                <div className="space-y-3">
+                  {announcements.length === 0 ? (
+                    <div className="text-center py-16 text-slate-400">
+                      <Megaphone className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                      <p className="text-sm">{t('announce.empty')}</p>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Pinned first, then by date */}
+                      {[...announcements].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)).map(item => (
+                        <motion.div
+                          key={item.id}
+                          initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }}
+                          onClick={() => setSelectedAnnouncement(item)}
+                          className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 hover:shadow-md hover:border-indigo-200 transition-all cursor-pointer group"
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className={`mt-0.5 w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                              item.type === 'urgent' ? 'bg-red-100' :
+                              item.type === 'update' ? 'bg-blue-100' :
+                              'bg-slate-100'
+                            }`}>
+                              {item.type === 'urgent' ? <AlertTriangle className="w-4 h-4 text-red-600" /> :
+                               item.type === 'update' ? <Rocket className="w-4 h-4 text-blue-600" /> :
+                               <Megaphone className="w-4 h-4 text-slate-500" />}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                {item.pinned && <Pin className="w-3 h-3 text-amber-500 shrink-0" />}
+                                <h4 className="font-semibold text-slate-800 text-sm truncate group-hover:text-indigo-600 transition-colors">
+                                  {item.title}
+                                </h4>
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0 ${
+                                  item.type === 'urgent' ? 'bg-red-100 text-red-700' :
+                                  item.type === 'update' ? 'bg-blue-100 text-blue-700' :
+                                  'bg-slate-100 text-slate-500'
+                                }`}>
+                                  {t(`announce.type.${item.type}`)}
+                                </span>
+                              </div>
+                              <p className="text-xs text-slate-500 line-clamp-2">{item.content}</p>
+                              <div className="flex items-center gap-2 mt-2 text-[11px] text-slate-400">
+                                <span>{item.authorName}</span>
+                                <span>·</span>
+                                <span>{new Date(item.createdAt).toLocaleDateString(language === 'ko' ? 'ko-KR' : 'en-US', { month: 'short', day: 'numeric' })}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {activeTab === 'board' && (
             <div className="flex gap-4 md:gap-6 h-full items-start overflow-x-auto pb-4 snap-x snap-mandatory md:snap-none">
               {COLUMNS.map(column => (

@@ -37,3 +37,15 @@ export interface Comment {
   authorPhotoURL: string | null;
   createdAt: number;
 }
+
+export interface Announcement {
+  id: string;
+  title: string;
+  content: string;
+  type: 'update' | 'notice' | 'urgent';
+  authorId: string;
+  authorName: string;
+  authorPhotoURL: string | null;
+  createdAt: number;
+  pinned?: boolean;
+}
