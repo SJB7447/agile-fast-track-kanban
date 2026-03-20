@@ -1142,7 +1142,7 @@ export default function App() {
             {showProfileMenu && (
               <>
                 <div className="fixed inset-0 z-30" onClick={() => { setShowProfileMenu(false); setProfilePanel('main'); }} />
-                <div className="absolute bottom-full left-0 right-0 mb-2 glass-card-strong rounded-2xl shadow-2xl shadow-black/10 overflow-hidden z-40 animate-[fadeIn_0.15s_ease-out_forwards] max-h-[70vh] overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:bg-slate-200 [&::-webkit-scrollbar-thumb]:rounded-full">
+                <div className="absolute bottom-full left-0 right-0 mb-2 bg-white border border-slate-200 rounded-2xl shadow-2xl shadow-black/10 overflow-hidden z-40 animate-[fadeIn_0.15s_ease-out_forwards] max-h-[70vh] overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:bg-slate-200 [&::-webkit-scrollbar-thumb]:rounded-full">
 
                   {/* === MAIN Panel === */}
                   {profilePanel === 'main' && (
@@ -1392,7 +1392,7 @@ export default function App() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden">
+      <main className="flex-1 flex flex-col h-screen overflow-hidden" onClick={() => { if (showProfileMenu) { setShowProfileMenu(false); setProfilePanel('main'); } }}>
         <header className="glass-header px-4 md:px-8 py-3 md:py-5 flex items-center justify-between shrink-0 sticky top-0 z-10 transition-all">
           <div className="flex items-center gap-3">
             <button
@@ -1496,10 +1496,12 @@ export default function App() {
                         const pinnedEl = document.getElementById('announce-pinned') as HTMLInputElement;
                         if (!titleEl.value.trim() || !contentEl.value.trim() || !user) return;
                         try {
+                          const announceTitle = titleEl.value.trim();
+                          const announceType = typeEl.value;
                           await addDoc(collection(db, 'announcements'), {
-                            title: titleEl.value.trim(),
+                            title: announceTitle,
                             content: contentEl.value.trim(),
-                            type: typeEl.value,
+                            type: announceType,
                             authorId: user.uid,
                             authorName: user.displayName || 'Unknown',
                             authorPhotoURL: user.photoURL || null,
@@ -1507,6 +1509,9 @@ export default function App() {
                             pinned: pinnedEl.checked,
                           });
                           setShowAnnouncementForm(false);
+                          // Send push notification for the announcement
+                          const notifTitle = announceType === 'urgent' ? `🚨 ${t('announce.type.urgent')}` : announceType === 'update' ? `🚀 ${t('announce.type.update')}` : `📢 ${t('announce.type.notice')}`;
+                          showNotification(notifTitle, announceTitle, { tag: 'announcement' });
                         } catch (e) {
                           console.error('Failed to post announcement:', e);
                           alert(t('announce.error'));
