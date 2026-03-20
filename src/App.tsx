@@ -6,7 +6,7 @@ import { Task, Status, Priority, Comment, CalendarEvent, AiResult, Announcement 
 import { manualContent, Language } from './manualContent';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, User } from 'firebase/auth';
-import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, query, orderBy, limit, addDoc } from 'firebase/firestore';
+import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, query, orderBy, limit, addDoc, getDocs, getDoc } from 'firebase/firestore';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import {
   NotificationSettings,
@@ -120,6 +120,10 @@ export default function App() {
   const [profilePanel, setProfilePanel] = useState<'main' | 'notifications' | 'install'>('main');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [firestoreError, setFirestoreError] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminList, setAdminList] = useState<{ uid: string; email: string; displayName: string }[]>([]);
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [newAdminEmail, setNewAdminEmail] = useState('');
 
   // Tutorial State
   const [showTutorial, setShowTutorial] = useState(false);
@@ -348,14 +352,60 @@ export default function App() {
       setIsAiLoading(false);
     }
   };
+  // Admin check helper
+  const checkAndSetAdmin = useCallback(async (currentUser: User | null) => {
+    if (!currentUser) { setIsAdmin(false); return; }
+    try {
+      // Check if already registered as admin
+      const adminDoc = await getDoc(doc(db, 'admins', currentUser.uid));
+      if (adminDoc.exists()) {
+        setIsAdmin(true);
+        return;
+      }
+
+      // Auto-register initial admin by email
+      const INITIAL_ADMIN_EMAIL = 'sjb76337447@gmail.com';
+      if (currentUser.email === INITIAL_ADMIN_EMAIL) {
+        await setDoc(doc(db, 'admins', currentUser.uid), {
+          email: currentUser.email,
+          displayName: currentUser.displayName || 'Admin',
+          createdAt: Date.now(),
+        });
+        setIsAdmin(true);
+        return;
+      }
+
+      // Check if invited via admin_invites
+      if (currentUser.email) {
+        const inviteDoc = await getDoc(doc(db, 'admin_invites', currentUser.email));
+        if (inviteDoc.exists()) {
+          await setDoc(doc(db, 'admins', currentUser.uid), {
+            email: currentUser.email,
+            displayName: currentUser.displayName || 'Admin',
+            createdAt: Date.now(),
+          });
+          await deleteDoc(doc(db, 'admin_invites', currentUser.email));
+          setIsAdmin(true);
+          return;
+        }
+      }
+
+      setIsAdmin(false);
+    } catch (e) {
+      console.error('Admin check error:', e);
+      setIsAdmin(false);
+    }
+  }, []);
+
   // Auth Listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setIsAuthReady(true);
+      checkAndSetAdmin(currentUser);
     });
     return () => unsubscribe();
-  }, []);
+  }, [checkAndSetAdmin]);
 
   // Track initial load to skip notifications on first snapshot
   const tRef = useRef<((key: string) => string) | null>(null);
@@ -457,10 +507,17 @@ export default function App() {
       console.error("Firestore Announcements Error:", error);
     });
 
+    // Admins listener (for admin panel)
+    const unsubscribeAdmins = onSnapshot(collection(db, 'admins'), (snapshot) => {
+      const list = snapshot.docs.map(d => ({ uid: d.id, ...d.data() } as { uid: string; email: string; displayName: string }));
+      setAdminList(list);
+    });
+
     return () => {
       unsubscribeTasks();
       unsubscribeComments();
       unsubscribeAnnouncements();
+      unsubscribeAdmins();
     };
   }, [isAuthReady, user]);
 
@@ -698,6 +755,9 @@ export default function App() {
       setAiResult(null);
       setFirestoreError(null);
       setAnnouncements([]);
+      setIsAdmin(false);
+      setAdminList([]);
+      setShowAdminPanel(false);
     } catch (error) {
       console.error("Logout Error:", error);
     }
@@ -1363,14 +1423,23 @@ export default function App() {
                   <Megaphone className="w-5 h-5 text-indigo-500" />
                   {t('announce.title')}
                 </h3>
-                {user && (
-                  <button
-                    onClick={() => { setShowAnnouncementForm(!showAnnouncementForm); setSelectedAnnouncement(null); }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-500 text-white rounded-lg text-sm font-medium hover:bg-indigo-600 transition-colors"
-                  >
-                    <Plus className="w-4 h-4" />
-                    {t('announce.new')}
-                  </button>
+                {isAdmin && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => { setShowAdminPanel(!showAdminPanel); setShowAnnouncementForm(false); setSelectedAnnouncement(null); }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg text-sm transition-colors"
+                    >
+                      <Settings className="w-4 h-4" />
+                      {t('admin.manage')}
+                    </button>
+                    <button
+                      onClick={() => { setShowAnnouncementForm(!showAnnouncementForm); setSelectedAnnouncement(null); setShowAdminPanel(false); }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-500 text-white rounded-lg text-sm font-medium hover:bg-indigo-600 transition-colors"
+                    >
+                      <Plus className="w-4 h-4" />
+                      {t('announce.new')}
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -1442,6 +1511,85 @@ export default function App() {
                 </motion.div>
               )}
 
+              {/* Admin Management Panel */}
+              {showAdminPanel && isAdmin && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
+                  className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-4"
+                >
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-semibold text-slate-800 flex items-center gap-2">
+                      <Settings className="w-4 h-4 text-slate-500" />
+                      {t('admin.title')}
+                    </h4>
+                    <button onClick={() => setShowAdminPanel(false)} className="text-slate-400 hover:text-slate-600">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Current admins list */}
+                  <div className="space-y-2">
+                    {adminList.map(admin => (
+                      <div key={admin.uid} className="flex items-center justify-between px-3 py-2 bg-slate-50 rounded-lg">
+                        <div>
+                          <p className="text-sm font-medium text-slate-700">{admin.displayName}</p>
+                          <p className="text-xs text-slate-500">{admin.email}</p>
+                        </div>
+                        {admin.uid !== user?.uid && (
+                          <button
+                            onClick={async () => {
+                              if (!confirm(t('admin.removeConfirm'))) return;
+                              try {
+                                await deleteDoc(doc(db, 'admins', admin.uid));
+                              } catch (e) {
+                                console.error('Failed to remove admin:', e);
+                              }
+                            }}
+                            className="text-xs text-red-500 hover:text-red-700 px-2 py-1 hover:bg-red-50 rounded transition-colors"
+                          >
+                            {t('admin.remove')}
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Add new admin */}
+                  <div className="flex gap-2">
+                    <input
+                      type="email"
+                      value={newAdminEmail}
+                      onChange={(e) => setNewAdminEmail(e.target.value)}
+                      placeholder={t('admin.emailPlaceholder')}
+                      className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <button
+                      onClick={async () => {
+                        const email = newAdminEmail.trim();
+                        if (!email) return;
+                        try {
+                          // Store by email as doc ID (will be linked to UID on their first login)
+                          await setDoc(doc(db, 'admin_invites', email), {
+                            email,
+                            invitedBy: user?.displayName || 'Admin',
+                            createdAt: Date.now(),
+                          });
+                          setNewAdminEmail('');
+                          alert(t('admin.invited'));
+                        } catch (e) {
+                          console.error('Failed to invite admin:', e);
+                          alert(t('admin.inviteError'));
+                        }
+                      }}
+                      className="px-4 py-2 bg-indigo-500 text-white rounded-lg text-sm font-medium hover:bg-indigo-600 transition-colors"
+                    >
+                      {t('admin.add')}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-400">{t('admin.inviteDesc')}</p>
+                </motion.div>
+              )}
+
               {/* Selected Announcement Detail */}
               {selectedAnnouncement && (
                 <motion.div
@@ -1473,7 +1621,7 @@ export default function App() {
                     <span>{new Date(selectedAnnouncement.createdAt).toLocaleDateString(language === 'ko' ? 'ko-KR' : 'en-US', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                   </div>
                   <div className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{selectedAnnouncement.content}</div>
-                  {selectedAnnouncement.authorId === user?.uid && (
+                  {isAdmin && (
                     <div className="mt-4 pt-4 border-t border-slate-100 flex justify-end">
                       <button
                         onClick={async () => {
