@@ -13,8 +13,7 @@ export async function initFCM(
   app: FirebaseApp,
   db: Firestore,
   uid: string,
-  vapidKey: string,
-  firebaseConfig: Record<string, string>
+  vapidKey: string
 ): Promise<string | null> {
   try {
     const supported = await isSupported();
@@ -25,21 +24,17 @@ export async function initFCM(
 
     messagingInstance = getMessaging(app);
 
-    // Send firebase config to the FCM service worker
+    // Register the FCM service worker (config is hardcoded in the SW file)
+    let swRegistration: ServiceWorkerRegistration | undefined;
     if ('serviceWorker' in navigator) {
-      const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
-      // Wait for the SW to be ready
+      swRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
       await navigator.serviceWorker.ready;
-      reg.active?.postMessage({
-        type: 'FIREBASE_CONFIG',
-        config: firebaseConfig,
-      });
     }
 
     // Get FCM token
     const token = await getToken(messagingInstance, {
       vapidKey,
-      serviceWorkerRegistration: await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js') || undefined,
+      serviceWorkerRegistration: swRegistration,
     });
 
     if (token) {

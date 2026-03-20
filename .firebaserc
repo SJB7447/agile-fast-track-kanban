@@ -1,3 +1,5 @@
 {
-  "projects": {}
+  "projects": {
+    "default": "arboreal-melody-479205-g8"
+  }
 }

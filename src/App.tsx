@@ -428,7 +428,7 @@ export default function App() {
       // Initialize FCM
       const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
       if (vapidKey && Notification.permission === 'granted') {
-        const token = await initFCM(app, db, user.uid, vapidKey, firebaseConfig);
+        const token = await initFCM(app, db, user.uid, vapidKey);
         fcmTokenRef.current = token;
       }
     };
