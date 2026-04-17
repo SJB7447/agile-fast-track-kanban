@@ -66,10 +66,13 @@ export interface Team {
 
 export interface CalendarEvent {
   id: string;
-  summary?: string;
-  start?: { dateTime?: string; date?: string };
-  end?: { dateTime?: string; date?: string };
-  htmlLink?: string;
+  summary: string;
+  start: { dateTime?: string; date?: string };
+  end: { dateTime?: string; date?: string };
+  description?: string;
+  allDay: boolean;
+  createdBy: string;
+  createdAt: number;
 }
 
 export interface AiResult {

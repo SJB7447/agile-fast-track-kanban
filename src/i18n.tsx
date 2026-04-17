@@ -362,7 +362,7 @@ export const translations: Translations = {
 
     // Auth & Generic
     'app.title': 'Fast-Track Agile',
-    'app.tagline': 'Access your team\'s Kanban board and sync your Google Calendar.',
+    'app.tagline': 'Access your team\'s Kanban board and manage your team schedule.',
     'auth.signInGoogle': 'Sign in with Google',
     'auth.logout': 'Logout',
     'generic.loading': 'Loading menus...',

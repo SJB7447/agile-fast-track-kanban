@@ -274,7 +274,6 @@ export default function App() {
   };
 
   // Calendar State
-  const [isCalendarConnected, setIsCalendarConnected] = useState(false);
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [isLoadingEvents, setIsLoadingEvents] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -736,6 +735,19 @@ export default function App() {
     return () => unsubscribeTeams();
   }, [isAdmin, user]);
 
+  // Firestore calendar events listener
+  useEffect(() => {
+    if (!user) return;
+    const unsubscribeCalEvents = onSnapshot(
+      query(collection(db, 'calendarEvents'), orderBy('createdAt', 'asc')),
+      (snapshot) => {
+        setCalendarEvents(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as CalendarEvent)));
+        setIsLoadingEvents(false);
+      }
+    );
+    return () => unsubscribeCalEvents();
+  }, [user]);
+
   // Due date reminder: check every 30 minutes for tasks due within 24 hours
   const dueDateNotifiedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
@@ -923,19 +935,12 @@ export default function App() {
     }
   };
 
-  // Calendar Events Fetcher
-  useEffect(() => {
-    if (isCalendarConnected && googleAccessToken) {
-      fetchCalendarEvents(currentMonth);
-    }
-  }, [currentMonth, isCalendarConnected, googleAccessToken]);
 
   const { t, language, setLanguage } = useLanguage();
   tRef.current = t;
 
   const handleTokenExpired = useCallback(() => {
     setGoogleAccessToken(null);
-    setIsCalendarConnected(false);
     alert(t('misc.googleAuthExpired'));
   }, [language]);
 
@@ -1105,13 +1110,11 @@ export default function App() {
   const handleLogin = async () => {
     try {
       const provider = new GoogleAuthProvider();
-      provider.addScope('https://www.googleapis.com/auth/calendar');
       provider.addScope('https://www.googleapis.com/auth/drive.file');
       const result = await signInWithPopup(auth, provider);
       const credential = GoogleAuthProvider.credentialFromResult(result);
       if (credential?.accessToken) {
         setGoogleAccessToken(credential.accessToken);
-        setIsCalendarConnected(true);
       }
     } catch (error) {
       console.error("Login Error:", error);
@@ -1124,7 +1127,6 @@ export default function App() {
       fcmTokenRef.current = null;
       await signOut(auth);
       setGoogleAccessToken(null);
-      setIsCalendarConnected(false);
       setCalendarEvents([]);
       setTasks([]);
       setComments([]);
@@ -1141,32 +1143,6 @@ export default function App() {
     }
   };
 
-  const fetchCalendarEvents = async (date: Date) => {
-    if (!googleAccessToken) return;
-    setIsLoadingEvents(true);
-    try {
-      const year = date.getFullYear();
-      const month = date.getMonth();
-      const start = new Date(year, month, 1).toISOString();
-      const end = new Date(year, month + 1, 0, 23, 59, 59).toISOString();
-      
-      const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${start}&timeMax=${end}&orderBy=startTime&singleEvents=true&maxResults=250`, {
-        headers: { Authorization: `Bearer ${googleAccessToken}` }
-      });
-      
-      if (res.status === 401) {
-        handleTokenExpired();
-        return;
-      }
-      const data = await res.json();
-      setCalendarEvents(data.items || []);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsLoadingEvents(false);
-    }
-  };
-
   const createCalendarEvent = async (eventData: {
     title: string;
     date: string;
@@ -1175,32 +1151,37 @@ export default function App() {
     description: string;
     allDay: boolean;
   }) => {
-    if (!googleAccessToken) return false;
+    if (!user) return false;
     try {
-      const body: Record<string, unknown> = {
+      const id = crypto.randomUUID();
+      const event: CalendarEvent = {
+        id,
         summary: eventData.title,
         description: eventData.description,
+        allDay: eventData.allDay,
+        createdBy: user.uid,
+        createdAt: Date.now(),
+        start: eventData.allDay
+          ? { date: eventData.date }
+          : { dateTime: `${eventData.date}T${eventData.startTime || '09:00'}:00` },
+        end: eventData.allDay
+          ? { date: eventData.date }
+          : { dateTime: `${eventData.date}T${eventData.endTime || '10:00'}:00` },
       };
-      if (eventData.allDay) {
-        body.start = { date: eventData.date };
-        body.end = { date: eventData.date };
-      } else {
-        body.start = { dateTime: `${eventData.date}T${eventData.startTime || '09:00'}:00`, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone };
-        body.end = { dateTime: `${eventData.date}T${eventData.endTime || '10:00'}:00`, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone };
-      }
-      const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${googleAccessToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (res.status === 401) { handleTokenExpired(); return false; }
-      if (!res.ok) { const err = await res.json(); console.error('Calendar event create error:', err); return false; }
-      await fetchCalendarEvents(currentMonth);
+      await setDoc(doc(db, 'calendarEvents', id), event);
       setShowCalendarEventModal(false);
       return true;
     } catch (e) {
       console.error(e);
       return false;
+    }
+  };
+
+  const deleteCalendarEvent = async (eventId: string) => {
+    try {
+      await deleteDoc(doc(db, 'calendarEvents', eventId));
+    } catch (e) {
+      console.error(e);
     }
   };
 
@@ -1339,17 +1320,16 @@ export default function App() {
       const totalItems = dayCalEvents.length + dayMeetings.length;
       const visibleLimit = 3;
 
-      const openNewEventOnDate = () => {
-        setMeetingInitialDate(dateStr);
-        setEditingMeeting(null);
-        setShowMeetingModal(true);
+      const openNewCalEventOnDate = () => {
+        setCalendarEventInitialDate(dateStr);
+        setShowCalendarEventModal(true);
       };
 
       days.push(
         <div
           key={i}
           className={`min-h-[90px] border-b border-r border-slate-100 p-1.5 transition-colors group relative cursor-pointer ${isToday ? 'bg-indigo-50/40' : 'bg-white hover:bg-slate-50/80'}`}
-          onClick={openNewEventOnDate}
+          onClick={openNewCalEventOnDate}
         >
           <div className="flex items-center justify-between mb-1">
             <div className={`text-xs font-semibold w-6 h-6 flex items-center justify-center rounded-full ${
@@ -1359,7 +1339,7 @@ export default function App() {
               {i}
             </div>
             <button
-              onClick={(e) => { e.stopPropagation(); openNewEventOnDate(); }}
+              onClick={(e) => { e.stopPropagation(); openNewCalEventOnDate(); }}
               className="opacity-0 group-hover:opacity-100 transition-opacity w-5 h-5 rounded bg-indigo-100 text-indigo-600 hover:bg-indigo-200 flex items-center justify-center"
             >
               <Plus className="w-3 h-3" />
@@ -1379,11 +1359,19 @@ export default function App() {
             ))}
             {dayCalEvents.slice(0, Math.max(0, visibleLimit - dayMeetings.length)).map(event => {
               const isAllDay = !event.start?.dateTime;
-              const timeString = isAllDay ? '' : new Date(event.start.dateTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+              const timeString = isAllDay ? '' : new Date(event.start.dateTime!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
               return (
-                <div key={event.id} className="text-[10px] leading-tight bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded truncate cursor-pointer hover:bg-indigo-200" title={event.summary}>
-                  {timeString && <span className="font-semibold mr-1">{timeString}</span>}
-                  {event.summary || 'Untitled'}
+                <div key={event.id} className="text-[10px] leading-tight bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded truncate cursor-pointer hover:bg-indigo-200 flex items-center justify-between group/ev" title={event.summary}>
+                  <span className="truncate">
+                    {timeString && <span className="font-semibold mr-1">{timeString}</span>}
+                    {event.summary || '제목 없음'}
+                  </span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); deleteCalendarEvent(event.id); }}
+                    className="opacity-0 group-hover/ev:opacity-100 ml-0.5 flex-shrink-0 text-indigo-400 hover:text-red-500 transition-opacity"
+                  >
+                    <X className="w-2.5 h-2.5" />
+                  </button>
                 </div>
               );
             })}
@@ -1418,15 +1406,23 @@ export default function App() {
           </div>
           <div className="flex items-center gap-3">
             <div className="hidden sm:flex items-center gap-3 text-xs text-slate-500">
-              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-purple-200 inline-block"></span>앱 회의</span>
-              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-indigo-200 inline-block"></span>Google Calendar</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-purple-200 inline-block"></span>회의</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-indigo-200 inline-block"></span>일정</span>
             </div>
-            <button
-              onClick={() => { setMeetingInitialDate(new Date().toLocaleDateString('en-CA')); setEditingMeeting(null); setShowMeetingModal(true); }}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"
-            >
-              <Plus className="w-3.5 h-3.5" /> 새 일정
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => { setCalendarEventInitialDate(new Date().toLocaleDateString('en-CA')); setShowCalendarEventModal(true); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-slate-600 text-xs font-semibold rounded-lg hover:bg-slate-100 transition-colors shadow-sm border border-slate-200"
+              >
+                <Plus className="w-3.5 h-3.5" /> 새 일정
+              </button>
+              <button
+                onClick={() => { setMeetingInitialDate(new Date().toLocaleDateString('en-CA')); setEditingMeeting(null); setShowMeetingModal(true); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"
+              >
+                <Plus className="w-3.5 h-3.5" /> 새 회의
+              </button>
+            </div>
           </div>
         </div>
         <div className="grid grid-cols-7 bg-slate-50">
@@ -2511,31 +2507,12 @@ export default function App() {
 
           {activeTab === 'calendar' && (
             <div className="h-full">
-              {!isCalendarConnected ? (
-                <div className="max-w-4xl mx-auto bg-white rounded-xl border border-slate-200 shadow-sm p-12 text-center mt-8">
-                  <div className="w-16 h-16 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <CalendarDays className="w-8 h-8 text-indigo-600" />
-                  </div>
-                  <h4 className="text-lg font-medium text-slate-900 mb-2">Connect your Calendar</h4>
-                  <p className="text-slate-500 mb-6 max-w-md mx-auto">
-                    Sign in with Google again to grant Calendar access and view your schedule directly inside the app.
-                  </p>
-                  <button
-                    onClick={handleLogin}
-                    className="inline-flex items-center gap-2 bg-indigo-600 text-white px-6 py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition-colors shadow-sm"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                    Grant Calendar Access
-                  </button>
+              {isLoadingEvents ? (
+                <div className="flex justify-center items-center h-full">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
                 </div>
               ) : (
-                isLoadingEvents ? (
-                  <div className="flex justify-center items-center h-full">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
-                  </div>
-                ) : (
-                  renderCalendarGrid()
-                )
+                renderCalendarGrid()
               )}
             </div>
           )}
@@ -2865,69 +2842,81 @@ export default function App() {
                 )}
               </div>
 
-              {/* Google Calendar Events */}
+              {/* 일정 캘린더 이벤트 */}
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                 <div className="p-6 border-b border-slate-200 flex justify-between items-center">
                   <div>
                     <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
-                      <Calendar className="w-5 h-5 text-blue-500" />
-                      Google Calendar 이벤트
+                      <Calendar className="w-5 h-5 text-indigo-500" />
+                      팀 일정
                     </h3>
-                    <p className="text-sm text-slate-500 mt-1">연동된 Google Calendar 일정입니다.</p>
+                    <p className="text-sm text-slate-500 mt-1">등록된 팀 일정입니다.</p>
                   </div>
-                  {!isCalendarConnected && (
-                    <button onClick={handleLogin} className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-lg text-sm font-semibold hover:bg-blue-100 transition-colors border border-blue-200">
-                      <Calendar className="w-4 h-4" /> 캘린더 연동하기
-                    </button>
-                  )}
+                  <button
+                    onClick={() => { setCalendarEventInitialDate(new Date().toLocaleDateString('en-CA')); setShowCalendarEventModal(true); }}
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-lg text-sm font-semibold hover:bg-indigo-100 transition-colors border border-indigo-200"
+                  >
+                    <Plus className="w-4 h-4" /> 일정 추가
+                  </button>
                 </div>
-                {isCalendarConnected ? (
-                  <div className="divide-y divide-slate-100">
-                    {isLoadingEvents ? (
-                      <div className="p-8 text-center text-slate-500">일정을 불러오는 중입니다...</div>
-                    ) : calendarEvents.length > 0 ? (
-                      calendarEvents.map((event, i) => {
-                        const isToday = new Date(event.start.dateTime || event.start.date).toDateString() === new Date().toDateString();
+                <div className="divide-y divide-slate-100">
+                  {isLoadingEvents ? (
+                    <div className="p-8 text-center text-slate-500">일정을 불러오는 중입니다...</div>
+                  ) : calendarEvents.length > 0 ? (
+                    calendarEvents
+                      .filter(event => {
+                        const dateStr = event.start?.dateTime || event.start?.date || '';
+                        return dateStr >= new Date().toLocaleDateString('en-CA');
+                      })
+                      .sort((a, b) => {
+                        const aDate = a.start?.dateTime || a.start?.date || '';
+                        const bDate = b.start?.dateTime || b.start?.date || '';
+                        return aDate.localeCompare(bDate);
+                      })
+                      .slice(0, 10)
+                      .map((event) => {
+                        const startStr = event.start?.dateTime || event.start?.date || '';
+                        const startDate = new Date(startStr);
+                        const isToday = startDate.toDateString() === new Date().toDateString();
                         return (
-                          <div key={i} className="p-4 hover:bg-slate-50 transition-colors flex items-start gap-4">
+                          <div key={event.id} className="p-4 hover:bg-slate-50 transition-colors flex items-start gap-4 group">
                             <div className={`mt-1 flex-shrink-0 w-12 text-center flex flex-col ${isToday ? 'text-indigo-600' : 'text-slate-500'}`}>
-                              <span className="text-xs font-semibold uppercase">{new Date(event.start.dateTime || event.start.date).toLocaleString('ko-KR', { month: 'short' })}</span>
-                              <span className="text-2xl font-bold leading-none">{new Date(event.start.dateTime || event.start.date).getDate()}</span>
+                              <span className="text-xs font-semibold uppercase">{startDate.toLocaleString('ko-KR', { month: 'short' })}</span>
+                              <span className="text-2xl font-bold leading-none">{startDate.getDate()}</span>
                             </div>
                             <div className="flex-1">
                               <h4 className="font-medium text-slate-900 line-clamp-1">{event.summary || '제목 없음'}</h4>
                               <div className="flex items-center gap-3 mt-1.5 text-xs text-slate-500">
                                 <span className="flex items-center gap-1">
                                   <Clock className="w-3 h-3" />
-                                  {event.start.dateTime
-                                    ? `${new Date(event.start.dateTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - ${new Date(event.end.dateTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`
-                                    : '종일 일정'
+                                  {event.allDay
+                                    ? '종일 일정'
+                                    : event.start?.dateTime
+                                      ? `${new Date(event.start.dateTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - ${new Date(event.end?.dateTime || '').toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`
+                                      : '종일 일정'
                                   }
                                 </span>
-                                {event.hangoutLink && (
-                                  <a href={event.hangoutLink} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-blue-600 hover:underline">
-                                    <Video className="w-3 h-3" /> 화상 회의 참석
-                                  </a>
-                                )}
                               </div>
+                              {event.description && <p className="text-xs text-slate-400 mt-1 line-clamp-1">{event.description}</p>}
                             </div>
+                            <button
+                              onClick={() => deleteCalendarEvent(event.id)}
+                              className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-500 transition-all flex-shrink-0"
+                              title="삭제"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
                           </div>
                         );
                       })
-                    ) : (
-                      <div className="p-10 text-center text-slate-500">
-                        <Calendar className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                        <p className="font-medium text-slate-600">예정된 일정이 없습니다.</p>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="p-10 text-center text-slate-500 bg-slate-50/50">
-                    <Calendar className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                    <p className="font-medium text-slate-600">Google Calendar 연동이 필요합니다.</p>
-                    <p className="text-sm mt-1">상단의 '캘린더 연동하기' 버튼을 클릭하세요.</p>
-                  </div>
-                )}
+                  ) : (
+                    <div className="p-10 text-center text-slate-500">
+                      <Calendar className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                      <p className="font-medium text-slate-600">예정된 일정이 없습니다.</p>
+                      <p className="text-sm mt-1">상단의 '일정 추가' 버튼으로 새 일정을 등록하세요.</p>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -4321,7 +4310,7 @@ export default function App() {
                   description: fd.get('description') as string,
                   allDay,
                 });
-                if (!ok) alert('일정 추가에 실패했습니다. Google Calendar 권한을 확인해 주세요.');
+                if (!ok) alert('일정 추가에 실패했습니다.');
               }} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">제목 *</label>
@@ -4376,7 +4365,7 @@ export default function App() {
                     placeholder="일정 설명 (선택사항)"
                   />
                 </div>
-                <p className="text-xs text-slate-400">Google Calendar 기본 캘린더에 추가됩니다.</p>
+                <p className="text-xs text-slate-400">팀 캘린더에 추가됩니다. 팀원 모두에게 표시됩니다.</p>
               </form>
             </div>
             <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
