@@ -774,14 +774,19 @@ export default function App() {
   // Team CRUD (admin only)
   const saveTeam = async (teamData: { name: string; description: string }) => {
     if (!user) return;
-    if (editingTeam?.id) {
-      await setDoc(doc(db, 'teams', editingTeam.id), { ...editingTeam, ...teamData });
-    } else {
-      const id = crypto.randomUUID();
-      await setDoc(doc(db, 'teams', id), { ...teamData, id, createdAt: Date.now(), createdBy: user.uid, members: [], inviteEmails: [] });
+    try {
+      if (editingTeam?.id) {
+        await setDoc(doc(db, 'teams', editingTeam.id), { ...editingTeam, ...teamData });
+      } else {
+        const id = crypto.randomUUID();
+        await setDoc(doc(db, 'teams', id), { ...teamData, id, createdAt: Date.now(), createdBy: user.uid, members: [], inviteEmails: [] });
+      }
+      setShowTeamModal(false);
+      setEditingTeam(null);
+    } catch (e) {
+      console.error('팀 저장 실패:', e);
+      alert('팀 저장에 실패했습니다. Firestore 권한을 확인해 주세요.');
     }
-    setShowTeamModal(false);
-    setEditingTeam(null);
   };
 
   const deleteTeam = async (teamId: string) => {
