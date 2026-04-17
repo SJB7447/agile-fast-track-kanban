@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { motion } from 'motion/react';
 import { useLanguage } from './i18n';
 import { DriveFile, getOrCreateAppFolder, listFiles, uploadFile, deleteFile, formatFileSize, getFileTypeIcon } from './driveService';
-import { Task, Status, Priority, Comment, CalendarEvent, AiResult, Announcement } from './types';
+import { Task, Status, Priority, Comment, CalendarEvent, AiResult, Announcement, Project, Meeting, ProjectStatus, Team, TeamMember } from './types';
 import { manualContent, Language } from './manualContent';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, User } from 'firebase/auth';
@@ -24,6 +24,8 @@ import {
   notifyCommentAdded,
   notifyFeedbackRequest,
   notifyDueDateReminder,
+  notifyProjectCreated,
+  notifyMeetingCreated,
 } from './notifications';
 
 import {
@@ -82,6 +84,18 @@ import {
   Megaphone,
   Pin,
   Trash2,
+  Building2,
+  MapPin,
+  Target,
+  UserCheck,
+  ChevronDown,
+  Filter,
+  Shield,
+  Crown,
+  UserMinus,
+  UserPlus,
+  Lock,
+  Globe,
 } from 'lucide-react';
 
 // Firebase config from environment variables
@@ -191,6 +205,35 @@ export default function App() {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [showAnnouncementForm, setShowAnnouncementForm] = useState(false);
   const [selectedAnnouncement, setSelectedAnnouncement] = useState<Announcement | null>(null);
+
+  // Projects State
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [showProjectModal, setShowProjectModal] = useState(false);
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
+
+  // Meetings State
+  const [meetings, setMeetings] = useState<Meeting[]>([]);
+  const [showMeetingModal, setShowMeetingModal] = useState(false);
+  const [editingMeeting, setEditingMeeting] = useState<Meeting | null>(null);
+
+  // Board filter
+  const [boardProjectFilter, setBoardProjectFilter] = useState<string>('');
+
+  // Calendar event creation state
+  const [showCalendarEventModal, setShowCalendarEventModal] = useState(false);
+  const [calendarEventInitialDate, setCalendarEventInitialDate] = useState<string>('');
+  // Pre-fill date when opening meeting modal from calendar
+  const [meetingInitialDate, setMeetingInitialDate] = useState<string>('');
+
+  // Teams State (admin-only)
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [showTeamModal, setShowTeamModal] = useState(false);
+  const [editingTeam, setEditingTeam] = useState<Team | null>(null);
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [inviteTargetTeamId, setInviteTargetTeamId] = useState<string>('');
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState<'member' | 'lead'>('member');
+  const [myTeamInfo, setMyTeamInfo] = useState<{ teamId: string; teamName: string; role: string } | null>(null);
 
   // Notification Center State
   interface NotifItem { id: string; title: string; body: string; tab: string; time: number; read: boolean; }
@@ -434,6 +477,7 @@ export default function App() {
       setUser(currentUser);
       setIsAuthReady(true);
       checkAndSetAdmin(currentUser);
+      if (currentUser) checkAndAcceptTeamInvite(currentUser);
     });
     return () => unsubscribe();
   }, [checkAndSetAdmin]);
@@ -625,13 +669,72 @@ export default function App() {
       setAdminList(list);
     });
 
+    // Projects listener - notify when others add new projects
+    let isInitialProjectLoad = true;
+    const unsubscribeProjects = onSnapshot(query(collection(db, 'projects'), orderBy('createdAt', 'desc')), (snapshot) => {
+      const newProjects = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Project));
+      if (!isInitialProjectLoad && notifSettingsRef.current.enabled) {
+        snapshot.docChanges().forEach(change => {
+          if (change.type === 'added') {
+            const p = { id: change.doc.id, ...change.doc.data() } as Project;
+            if (p.createdBy !== user.uid) {
+              notifyProjectCreated(p.title);
+              addNotifItem('새 프로젝트 등록', `"${p.title}" 프로젝트가 등록되었습니다.`, 'projects');
+            }
+          }
+        });
+      }
+      isInitialProjectLoad = false;
+      setProjects(newProjects);
+    });
+
+    // Meetings listener - notify when others add new meetings
+    let isInitialMeetingLoad = true;
+    const unsubscribeMeetings = onSnapshot(query(collection(db, 'meetings'), orderBy('date', 'asc')), (snapshot) => {
+      const newMeetings = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Meeting));
+      if (!isInitialMeetingLoad && notifSettingsRef.current.enabled) {
+        snapshot.docChanges().forEach(change => {
+          if (change.type === 'added') {
+            const m = { id: change.doc.id, ...change.doc.data() } as Meeting;
+            if (m.createdBy !== user.uid) {
+              notifyMeetingCreated(m.title, m.date);
+              addNotifItem('새 회의 일정 등록', `"${m.title}" 회의가 ${m.date}에 예정되었습니다.`, 'meetings');
+            }
+          }
+        });
+      }
+      isInitialMeetingLoad = false;
+      setMeetings(newMeetings);
+    });
+
+    // userTeams listener - each user sees only their own team info
+    const unsubscribeUserTeam = onSnapshot(doc(db, 'userTeams', user.uid), (snap) => {
+      if (snap.exists()) {
+        setMyTeamInfo(snap.data() as { teamId: string; teamName: string; role: string });
+      } else {
+        setMyTeamInfo(null);
+      }
+    });
+
     return () => {
       unsubscribeTasks();
       unsubscribeComments();
       unsubscribeAnnouncements();
       unsubscribeAdmins();
+      unsubscribeProjects();
+      unsubscribeMeetings();
+      unsubscribeUserTeam();
     };
   }, [isAuthReady, user]);
+
+  // Admin-only teams listener
+  useEffect(() => {
+    if (!isAdmin || !user) return;
+    const unsubscribeTeams = onSnapshot(query(collection(db, 'teams'), orderBy('createdAt', 'desc')), (snapshot) => {
+      setTeams(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Team)));
+    });
+    return () => unsubscribeTeams();
+  }, [isAdmin, user]);
 
   // Due date reminder: check every 30 minutes for tasks due within 24 hours
   const dueDateNotifiedRef = useRef<Set<string>>(new Set());
@@ -655,6 +758,153 @@ export default function App() {
     const interval = setInterval(checkDueDates, 30 * 60 * 1000);
     return () => clearInterval(interval);
   }, [user, tasks]);
+
+  // Team CRUD (admin only)
+  const saveTeam = async (teamData: { name: string; description: string }) => {
+    if (!user) return;
+    if (editingTeam?.id) {
+      await setDoc(doc(db, 'teams', editingTeam.id), { ...editingTeam, ...teamData });
+    } else {
+      const id = crypto.randomUUID();
+      await setDoc(doc(db, 'teams', id), { ...teamData, id, createdAt: Date.now(), createdBy: user.uid, members: [], inviteEmails: [] });
+    }
+    setShowTeamModal(false);
+    setEditingTeam(null);
+  };
+
+  const deleteTeam = async (teamId: string) => {
+    if (!confirm('이 팀을 삭제하시겠습니까? 팀원 데이터는 유지됩니다.')) return;
+    await deleteDoc(doc(db, 'teams', teamId));
+  };
+
+  const inviteTeamMember = async () => {
+    if (!inviteEmail.trim() || !inviteTargetTeamId || !user) return;
+    const targetTeam = teams.find(t => t.id === inviteTargetTeamId);
+    if (!targetTeam) return;
+    // Save invite in team_invites collection (keyed by email)
+    await setDoc(doc(db, 'team_invites', inviteEmail.trim().toLowerCase()), {
+      teamId: inviteTargetTeamId,
+      teamName: targetTeam.name,
+      role: inviteRole,
+      invitedAt: Date.now(),
+      invitedBy: user.uid,
+      invitedByName: user.displayName || 'Admin',
+    });
+    // Also update team's inviteEmails list
+    const updatedEmails = [...new Set([...(targetTeam.inviteEmails || []), inviteEmail.trim().toLowerCase()])];
+    await setDoc(doc(db, 'teams', inviteTargetTeamId), { ...targetTeam, inviteEmails: updatedEmails });
+    setInviteEmail('');
+    setShowInviteModal(false);
+    alert(`${inviteEmail}에게 팀 초대를 발송했습니다.`);
+  };
+
+  const removeTeamMember = async (teamId: string, memberUid: string) => {
+    const team = teams.find(t => t.id === teamId);
+    if (!team) return;
+    const updatedMembers = team.members.filter(m => m.uid !== memberUid);
+    await setDoc(doc(db, 'teams', teamId), { ...team, members: updatedMembers });
+    // Remove from userTeams
+    await deleteDoc(doc(db, 'userTeams', memberUid));
+  };
+
+  // Accept team invite on login (called in auth listener context)
+  const checkAndAcceptTeamInvite = async (currentUser: typeof user) => {
+    if (!currentUser?.email) return;
+    try {
+      const inviteDoc = await getDoc(doc(db, 'team_invites', currentUser.email.toLowerCase()));
+      if (!inviteDoc.exists()) return;
+      const invite = inviteDoc.data();
+      const teamDoc = await getDoc(doc(db, 'teams', invite.teamId));
+      if (!teamDoc.exists()) return;
+      const team = { id: teamDoc.id, ...teamDoc.data() } as Team;
+      const newMember: TeamMember = {
+        uid: currentUser.uid,
+        email: currentUser.email,
+        displayName: currentUser.displayName || currentUser.email,
+        photoURL: currentUser.photoURL || null,
+        role: invite.role || 'member',
+        joinedAt: Date.now(),
+      };
+      const updatedMembers = [...team.members.filter(m => m.uid !== currentUser.uid), newMember];
+      const updatedEmails = (team.inviteEmails || []).filter((e: string) => e !== currentUser.email?.toLowerCase());
+      await setDoc(doc(db, 'teams', invite.teamId), { ...team, members: updatedMembers, inviteEmails: updatedEmails });
+      await setDoc(doc(db, 'userTeams', currentUser.uid), { teamId: invite.teamId, teamName: team.name, role: invite.role || 'member', joinedAt: Date.now() });
+      await deleteDoc(doc(db, 'team_invites', currentUser.email.toLowerCase()));
+    } catch (e) {
+      console.error('Team invite accept error:', e);
+    }
+  };
+
+  const saveProject = async (projectData: Omit<Project, 'id' | 'createdAt' | 'createdBy'>) => {
+    if (!user) return;
+    const isNew = !editingProject?.id;
+    if (editingProject?.id) {
+      await setDoc(doc(db, 'projects', editingProject.id), { ...editingProject, ...projectData });
+    } else {
+      const id = crypto.randomUUID();
+      await setDoc(doc(db, 'projects', id), { ...projectData, id, createdAt: Date.now(), createdBy: user.uid });
+    }
+    if (isNew && notifSettingsRef.current.enabled) {
+      notifyProjectCreated(projectData.title);
+      addNotifItem('새 프로젝트 등록', `"${projectData.title}" 프로젝트가 등록되었습니다.`, 'projects');
+    }
+    setShowProjectModal(false);
+    setEditingProject(null);
+  };
+
+  const deleteProject = async (id: string) => {
+    if (!confirm('이 프로젝트를 삭제하시겠습니까?')) return;
+    await deleteDoc(doc(db, 'projects', id));
+  };
+
+  const openProjectModal = (project?: Project) => {
+    setEditingProject(project || null);
+    setShowProjectModal(true);
+  };
+
+  const saveMeeting = async (meetingData: Omit<Meeting, 'id' | 'createdAt' | 'createdBy' | 'createdByName'>) => {
+    if (!user) return;
+    const isNew = !editingMeeting?.id;
+    if (editingMeeting?.id) {
+      await setDoc(doc(db, 'meetings', editingMeeting.id), { ...editingMeeting, ...meetingData });
+    } else {
+      const id = crypto.randomUUID();
+      await setDoc(doc(db, 'meetings', id), { ...meetingData, id, createdAt: Date.now(), createdBy: user.uid, createdByName: user.displayName || 'User' });
+    }
+    if (isNew && notifSettingsRef.current.enabled) {
+      notifyMeetingCreated(meetingData.title, meetingData.date);
+      addNotifItem('새 회의 일정 등록', `"${meetingData.title}" 회의가 ${meetingData.date}에 예정되었습니다.`, 'meetings');
+    }
+    setShowMeetingModal(false);
+    setEditingMeeting(null);
+  };
+
+  const deleteMeeting = async (id: string) => {
+    if (!confirm('이 회의 일정을 삭제하시겠습니까?')) return;
+    await deleteDoc(doc(db, 'meetings', id));
+  };
+
+  const openMeetingModal = (meeting?: Meeting) => {
+    setEditingMeeting(meeting || null);
+    setShowMeetingModal(true);
+  };
+
+  const createTaskFromMeetingAgenda = async (title: string, projectId: string) => {
+    if (!user) return;
+    const id = crypto.randomUUID();
+    await setDoc(doc(db, 'tasks', id), {
+      id,
+      title,
+      description: '회의 안건에서 생성된 작업',
+      assignee: user.displayName || '',
+      dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      priority: 'Medium',
+      status: 'To Do',
+      projectId: projectId || '',
+      createdAt: Date.now(),
+      createdBy: user.uid,
+    });
+  };
 
   const handleCommentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -702,11 +952,12 @@ export default function App() {
   const tasksByStatus = useMemo(() => {
     const map: Record<string, Task[]> = {};
     for (const col of COLUMNS) map[col] = [];
-    for (const task of tasks) {
+    const filtered = boardProjectFilter ? tasks.filter(t => t.projectId === boardProjectFilter) : tasks;
+    for (const task of filtered) {
       if (map[task.status]) map[task.status].push(task);
     }
     return map;
-  }, [tasks]);
+  }, [tasks, boardProjectFilter]);
 
   const menuCategories = [
     {
@@ -760,6 +1011,12 @@ export default function App() {
         { id: 'ai_blocker', label: t('nav.item.blockedAlert'), icon: <ShieldAlert className="w-[18px] h-[18px]" /> },
       ]
     },
+    ...(isAdmin ? [{
+      title: '관리자',
+      items: [
+        { id: 'teams', label: '팀 관리', icon: <Shield className="w-[18px] h-[18px]" /> },
+      ]
+    }] : []),
   ];
 
   const activeMenu = menuCategories.flatMap(c => c.items).find(i => i.id === activeTab);
@@ -848,7 +1105,7 @@ export default function App() {
   const handleLogin = async () => {
     try {
       const provider = new GoogleAuthProvider();
-      provider.addScope('https://www.googleapis.com/auth/calendar.readonly');
+      provider.addScope('https://www.googleapis.com/auth/calendar');
       provider.addScope('https://www.googleapis.com/auth/drive.file');
       const result = await signInWithPopup(auth, provider);
       const credential = GoogleAuthProvider.credentialFromResult(result);
@@ -907,6 +1164,43 @@ export default function App() {
       console.error(e);
     } finally {
       setIsLoadingEvents(false);
+    }
+  };
+
+  const createCalendarEvent = async (eventData: {
+    title: string;
+    date: string;
+    startTime: string;
+    endTime: string;
+    description: string;
+    allDay: boolean;
+  }) => {
+    if (!googleAccessToken) return false;
+    try {
+      const body: Record<string, unknown> = {
+        summary: eventData.title,
+        description: eventData.description,
+      };
+      if (eventData.allDay) {
+        body.start = { date: eventData.date };
+        body.end = { date: eventData.date };
+      } else {
+        body.start = { dateTime: `${eventData.date}T${eventData.startTime || '09:00'}:00`, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone };
+        body.end = { dateTime: `${eventData.date}T${eventData.endTime || '10:00'}:00`, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone };
+      }
+      const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${googleAccessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (res.status === 401) { handleTokenExpired(); return false; }
+      if (!res.ok) { const err = await res.json(); console.error('Calendar event create error:', err); return false; }
+      await fetchCalendarEvents(currentMonth);
+      setShowCalendarEventModal(false);
+      return true;
+    } catch (e) {
+      console.error(e);
+      return false;
     }
   };
 
@@ -1014,51 +1308,88 @@ export default function App() {
     const month = currentMonth.getMonth();
     const daysInMonth = getDaysInMonth(year, month);
     const firstDay = getFirstDayOfMonth(year, month);
-    
-    const days = [];
-    const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-    const headers = weekDays.map(day => (
-      <div key={day} className="text-center font-semibold text-sm text-slate-500 py-2 border-b border-slate-200">
+    const days = [];
+    const weekDays = ['일', '월', '화', '수', '목', '금', '토'];
+
+    const headers = weekDays.map((day, idx) => (
+      <div key={day} className={`text-center font-semibold text-sm py-2 border-b border-slate-200 ${idx === 0 ? 'text-red-400' : idx === 6 ? 'text-blue-400' : 'text-slate-500'}`}>
         {day}
       </div>
     ));
 
     for (let i = 0; i < firstDay; i++) {
-      days.push(<div key={`empty-${i}`} className="min-h-[100px] bg-slate-50/50 border-b border-r border-slate-100 p-2"></div>);
+      days.push(<div key={`empty-${i}`} className="min-h-[90px] bg-slate-50/50 border-b border-r border-slate-100 p-1.5"></div>);
     }
 
     for (let i = 1; i <= daysInMonth; i++) {
       const dateObj = new Date(year, month, i);
       const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
-      
-      const dayEvents = calendarEvents.filter(e => {
+      const dayOfWeek = dateObj.getDay();
+
+      const dayCalEvents = calendarEvents.filter(e => {
         const eventStart = e.start?.dateTime || e.start?.date;
         return eventStart && eventStart.startsWith(dateStr);
       });
 
+      const dayMeetings = meetings.filter(m => m.date === dateStr);
+
       const todayStr = new Date().toLocaleDateString('en-CA');
       const isToday = todayStr === dateStr;
+      const totalItems = dayCalEvents.length + dayMeetings.length;
+      const visibleLimit = 3;
+
+      const openNewEventOnDate = () => {
+        setMeetingInitialDate(dateStr);
+        setEditingMeeting(null);
+        setShowMeetingModal(true);
+      };
 
       days.push(
-        <div key={i} className={`min-h-[100px] border-b border-r border-slate-100 p-2 transition-colors hover:bg-slate-50 ${isToday ? 'bg-indigo-50/30' : 'bg-white'}`}>
-          <div className={`text-xs font-medium w-6 h-6 flex items-center justify-center rounded-full mb-1 ${isToday ? 'bg-indigo-600 text-white' : 'text-slate-700'}`}>
-            {i}
+        <div
+          key={i}
+          className={`min-h-[90px] border-b border-r border-slate-100 p-1.5 transition-colors group relative cursor-pointer ${isToday ? 'bg-indigo-50/40' : 'bg-white hover:bg-slate-50/80'}`}
+          onClick={openNewEventOnDate}
+        >
+          <div className="flex items-center justify-between mb-1">
+            <div className={`text-xs font-semibold w-6 h-6 flex items-center justify-center rounded-full ${
+              isToday ? 'bg-indigo-600 text-white' :
+              dayOfWeek === 0 ? 'text-red-500' : dayOfWeek === 6 ? 'text-blue-500' : 'text-slate-700'
+            }`}>
+              {i}
+            </div>
+            <button
+              onClick={(e) => { e.stopPropagation(); openNewEventOnDate(); }}
+              className="opacity-0 group-hover:opacity-100 transition-opacity w-5 h-5 rounded bg-indigo-100 text-indigo-600 hover:bg-indigo-200 flex items-center justify-center"
+            >
+              <Plus className="w-3 h-3" />
+            </button>
           </div>
-          <div className="space-y-1">
-            {dayEvents.slice(0, 4).map(event => {
+          <div className="space-y-0.5" onClick={(e) => e.stopPropagation()}>
+            {dayMeetings.slice(0, visibleLimit).map(m => (
+              <div
+                key={m.id}
+                className="text-[10px] leading-tight bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded truncate cursor-pointer hover:bg-purple-200"
+                title={`[회의] ${m.title}${m.startTime ? ' ' + m.startTime : ''}`}
+                onClick={() => setActiveTab('meetings')}
+              >
+                {m.startTime && <span className="font-bold mr-1">{m.startTime}</span>}
+                {m.title}
+              </div>
+            ))}
+            {dayCalEvents.slice(0, Math.max(0, visibleLimit - dayMeetings.length)).map(event => {
               const isAllDay = !event.start?.dateTime;
               const timeString = isAllDay ? '' : new Date(event.start.dateTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
               return (
-                <div key={event.id} className="text-[10px] leading-tight bg-indigo-100 text-indigo-800 px-1.5 py-1 rounded truncate cursor-pointer hover:bg-indigo-200" title={event.summary}>
+                <div key={event.id} className="text-[10px] leading-tight bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded truncate cursor-pointer hover:bg-indigo-200" title={event.summary}>
                   {timeString && <span className="font-semibold mr-1">{timeString}</span>}
                   {event.summary || 'Untitled'}
                 </div>
               );
             })}
-            {dayEvents.length > 4 && (
+            {totalItems > visibleLimit && (
               <div className="text-[10px] text-slate-500 font-medium px-1">
-                +{dayEvents.length - 4} more
+                +{totalItems - visibleLimit} 더보기
               </div>
             )}
           </div>
@@ -1071,19 +1402,31 @@ export default function App() {
         <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-white">
           <div className="flex items-center gap-4">
             <h3 className="text-lg font-bold text-slate-800">
-              {currentMonth.toLocaleString('default', { month: 'long', year: 'numeric' })}
+              {currentMonth.toLocaleString('ko-KR', { year: 'numeric', month: 'long' })}
             </h3>
             <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
               <button onClick={() => setCurrentMonth(new Date(year, month - 1, 1))} className="p-1 rounded hover:bg-white hover:shadow-sm transition-all text-slate-600">
                 <ChevronLeft className="w-4 h-4" />
               </button>
               <button onClick={() => setCurrentMonth(new Date())} className="px-2 py-1 text-xs font-medium rounded hover:bg-white hover:shadow-sm transition-all text-slate-600">
-                Today
+                오늘
               </button>
               <button onClick={() => setCurrentMonth(new Date(year, month + 1, 1))} className="p-1 rounded hover:bg-white hover:shadow-sm transition-all text-slate-600">
                 <ChevronRight className="w-4 h-4" />
               </button>
             </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="hidden sm:flex items-center gap-3 text-xs text-slate-500">
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-purple-200 inline-block"></span>앱 회의</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-indigo-200 inline-block"></span>Google Calendar</span>
+            </div>
+            <button
+              onClick={() => { setMeetingInitialDate(new Date().toLocaleDateString('en-CA')); setEditingMeeting(null); setShowMeetingModal(true); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"
+            >
+              <Plus className="w-3.5 h-3.5" /> 새 일정
+            </button>
           </div>
         </div>
         <div className="grid grid-cols-7 bg-slate-50">
@@ -1126,13 +1469,13 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen glass-bg flex flex-col md:flex-row font-sans text-slate-900">
+    <div className="h-screen overflow-hidden glass-bg flex flex-col md:flex-row font-sans text-slate-900">
       {/* Mobile Sidebar Overlay */}
       {isMobileSidebarOpen && (
         <div className="fixed inset-0 bg-black/20 backdrop-blur-sm z-30 md:hidden" onClick={() => setIsMobileSidebarOpen(false)} />
       )}
       {/* Sidebar */}
-      <aside className={`fixed inset-y-0 left-0 w-[280px] glass-sidebar flex flex-col shrink-0 z-40 transition-transform duration-300 ease-in-out md:static md:translate-x-0 ${isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      <aside className={`fixed inset-y-0 left-0 w-[280px] glass-sidebar flex flex-col shrink-0 z-40 transition-transform duration-300 ease-in-out md:static md:translate-x-0 md:h-screen ${isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="p-6 border-b border-slate-200 sticky top-0 z-10">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-md shadow-indigo-200">
@@ -1389,6 +1732,8 @@ export default function App() {
                             { key: 'dueDateReminder', label: t('notif.dueDateReminder'), icon: <Clock className="w-3.5 h-3.5" /> },
                             { key: 'commentAdded', label: t('notif.commentAdded'), icon: <MessageSquare className="w-3.5 h-3.5" /> },
                             { key: 'feedbackRequest', label: t('notif.feedbackRequest'), icon: <Eye className="w-3.5 h-3.5" /> },
+                            { key: 'projectCreated', label: '새 프로젝트 등록', icon: <Folder className="w-3.5 h-3.5" /> },
+                            { key: 'meetingCreated', label: '새 회의 일정 등록', icon: <Users className="w-3.5 h-3.5" /> },
                           ] as { key: keyof NotificationSettings; label: string; icon: React.ReactNode }[]).map(item => (
                             <div key={item.key} className={`flex items-center justify-between py-2 px-2.5 rounded-lg ${notifSettings.enabled ? 'hover:bg-slate-50' : 'opacity-40'}`}>
                               <div className="flex items-center gap-2.5">
@@ -1884,7 +2229,30 @@ export default function App() {
           )}
 
           {activeTab === 'board' && (
-            <div className="flex gap-4 md:gap-6 h-full items-start overflow-x-auto pb-4 snap-x snap-mandatory md:snap-none">
+            <div className="flex flex-col gap-4 h-full">
+            {projects.length > 0 && (
+              <div className="flex items-center gap-2 flex-wrap shrink-0">
+                <Filter className="w-4 h-4 text-slate-400" />
+                <button
+                  onClick={() => setBoardProjectFilter('')}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${!boardProjectFilter ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}
+                >
+                  전체
+                </button>
+                {projects.map(p => (
+                  <button
+                    key={p.id}
+                    onClick={() => setBoardProjectFilter(boardProjectFilter === p.id ? '' : p.id)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors flex items-center gap-1 ${boardProjectFilter === p.id ? 'text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}
+                    style={boardProjectFilter === p.id ? { backgroundColor: p.color || '#6366f1' } : {}}
+                  >
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: p.color || '#6366f1' }} />
+                    {p.title}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-4 md:gap-6 flex-1 items-start overflow-x-auto pb-4 snap-x snap-mandatory md:snap-none">
               {COLUMNS.map(column => (
                 <div
                   key={column}
@@ -1913,7 +2281,7 @@ export default function App() {
                         onClick={() => openEditModal(task)}
                       />
                     ))}
-                    <button 
+                    <button
                       onClick={() => openCreateModal(column)}
                       className="w-full py-2 flex items-center justify-center gap-2 text-sm text-slate-500 hover:text-slate-700 hover:bg-white/40 rounded-xl transition-colors border border-dashed border-white/60"
                     >
@@ -1923,10 +2291,57 @@ export default function App() {
                 </div>
               ))}
             </div>
+            </div>
           )}
 
           {activeTab === 'sync' && (
             <div className="max-w-5xl mx-auto space-y-8">
+              {/* Today's Meetings */}
+              {(() => {
+                const today = new Date().toISOString().split('T')[0];
+                const todayMeetings = meetings.filter(m => m.date === today);
+                const upcomingMeetings = meetings.filter(m => m.date > today).slice(0, 3);
+                if (todayMeetings.length === 0 && upcomingMeetings.length === 0) return null;
+                return (
+                  <div className="bg-indigo-50 border border-indigo-200 p-5 rounded-xl shadow-sm">
+                    <h3 className="text-base font-semibold text-indigo-800 mb-3 flex items-center gap-2">
+                      <Users className="w-4 h-4" /> 오늘의 회의 일정
+                    </h3>
+                    {todayMeetings.length > 0 ? (
+                      <div className="space-y-2">
+                        {todayMeetings.map(m => (
+                          <div key={m.id} className="bg-white rounded-lg px-4 py-2.5 border border-indigo-100 flex items-center gap-3">
+                            <div className="w-1.5 h-8 rounded-full bg-indigo-400 shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <p className="font-semibold text-slate-800 text-sm truncate">{m.title}</p>
+                              <p className="text-xs text-slate-500">
+                                {m.startTime && `${m.startTime}${m.endTime ? ` - ${m.endTime}` : ''}`}
+                                {m.location && ` · ${m.location}`}
+                              </p>
+                            </div>
+                            <button onClick={() => setActiveTab('meetings')} className="text-xs text-indigo-600 font-semibold hover:underline shrink-0">보기</button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-sm text-indigo-600/70 mb-2">오늘 예정된 회의가 없습니다.</div>
+                    )}
+                    {upcomingMeetings.length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-indigo-200">
+                        <p className="text-xs font-semibold text-indigo-600 mb-2">예정된 회의</p>
+                        {upcomingMeetings.map(m => (
+                          <div key={m.id} className="flex items-center gap-2 text-xs text-indigo-700 py-0.5">
+                            <CalendarDays className="w-3 h-3 shrink-0" />
+                            <span className="font-medium">{m.date}</span>
+                            <span className="truncate">{m.title}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
               <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
                 <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
                   <Clock className="w-5 h-5 text-indigo-500" />
@@ -2357,14 +2772,108 @@ export default function App() {
           {/* Meetings state */}
           {activeTab === 'meetings' && (
             <div className="max-w-5xl mx-auto space-y-6">
+              {/* App Meetings */}
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                 <div className="p-6 border-b border-slate-200 flex justify-between items-center">
                   <div>
                     <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
                       <Users className="w-5 h-5 text-indigo-500" />
-                      예정된 회의 일정
+                      회의 일정 관리
                     </h3>
-                    <p className="text-sm text-slate-500 mt-1">Google Calendar와 동기화된 이벤트 목록입니다.</p>
+                    <p className="text-sm text-slate-500 mt-1">회의 일정을 등록하고 팀과 공유합니다.</p>
+                  </div>
+                  {user && (
+                    <button
+                      onClick={() => openMeetingModal()}
+                      className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors shadow-sm"
+                    >
+                      <Plus className="w-4 h-4" /> 회의 등록
+                    </button>
+                  )}
+                </div>
+                {meetings.length === 0 ? (
+                  <div className="p-10 text-center text-slate-500">
+                    <Users className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                    <p className="font-medium text-slate-600">등록된 회의 일정이 없습니다.</p>
+                    <p className="text-sm mt-1">'회의 등록' 버튼으로 일정을 추가하세요.</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-100">
+                    {meetings.map(meeting => {
+                      const today = new Date().toISOString().split('T')[0];
+                      const isToday = meeting.date === today;
+                      const isPast = meeting.date < today;
+                      const linkedProject = projects.find(p => p.id === meeting.projectId);
+                      return (
+                        <div key={meeting.id} className={`p-4 hover:bg-slate-50 transition-colors flex items-start gap-4 ${isPast ? 'opacity-60' : ''}`}>
+                          <div className={`mt-1 flex-shrink-0 w-14 text-center flex flex-col p-2 rounded-lg ${isToday ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600'}`}>
+                            <span className="text-[10px] font-bold uppercase">{new Date(meeting.date + 'T00:00:00').toLocaleString('ko-KR', { month: 'short' })}</span>
+                            <span className="text-2xl font-black leading-none">{new Date(meeting.date + 'T00:00:00').getDate()}</span>
+                            {isToday && <span className="text-[9px] font-bold text-indigo-600">오늘</span>}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <h4 className="font-semibold text-slate-900 truncate">{meeting.title}</h4>
+                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-xs text-slate-500">
+                                  {(meeting.startTime || meeting.endTime) && (
+                                    <span className="flex items-center gap-1">
+                                      <Clock className="w-3 h-3" />
+                                      {meeting.startTime}{meeting.endTime ? ` - ${meeting.endTime}` : ''}
+                                    </span>
+                                  )}
+                                  {meeting.location && (
+                                    <span className="flex items-center gap-1">
+                                      <MapPin className="w-3 h-3" /> {meeting.location}
+                                    </span>
+                                  )}
+                                  {meeting.attendees && (
+                                    <span className="flex items-center gap-1">
+                                      <UserCheck className="w-3 h-3" /> {meeting.attendees}
+                                    </span>
+                                  )}
+                                  {linkedProject && (
+                                    <span className="flex items-center gap-1 text-indigo-600 font-medium">
+                                      <Folder className="w-3 h-3" /> {linkedProject.title}
+                                    </span>
+                                  )}
+                                </div>
+                                {meeting.agenda && (
+                                  <p className="mt-1.5 text-xs text-slate-500 line-clamp-2 bg-slate-50 px-2 py-1 rounded">{meeting.agenda}</p>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  onClick={() => openMeetingModal(meeting)}
+                                  className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => deleteMeeting(meeting.id)}
+                                  className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Google Calendar Events */}
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="p-6 border-b border-slate-200 flex justify-between items-center">
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                      <Calendar className="w-5 h-5 text-blue-500" />
+                      Google Calendar 이벤트
+                    </h3>
+                    <p className="text-sm text-slate-500 mt-1">연동된 Google Calendar 일정입니다.</p>
                   </div>
                   {!isCalendarConnected && (
                     <button onClick={handleLogin} className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-lg text-sm font-semibold hover:bg-blue-100 transition-colors border border-blue-200">
@@ -2382,7 +2891,7 @@ export default function App() {
                         return (
                           <div key={i} className="p-4 hover:bg-slate-50 transition-colors flex items-start gap-4">
                             <div className={`mt-1 flex-shrink-0 w-12 text-center flex flex-col ${isToday ? 'text-indigo-600' : 'text-slate-500'}`}>
-                              <span className="text-xs font-semibold uppercase">{new Date(event.start.dateTime || event.start.date).toLocaleString('en-US', { month: 'short' })}</span>
+                              <span className="text-xs font-semibold uppercase">{new Date(event.start.dateTime || event.start.date).toLocaleString('ko-KR', { month: 'short' })}</span>
                               <span className="text-2xl font-bold leading-none">{new Date(event.start.dateTime || event.start.date).getDate()}</span>
                             </div>
                             <div className="flex-1">
@@ -2390,7 +2899,7 @@ export default function App() {
                               <div className="flex items-center gap-3 mt-1.5 text-xs text-slate-500">
                                 <span className="flex items-center gap-1">
                                   <Clock className="w-3 h-3" />
-                                  {event.start.dateTime 
+                                  {event.start.dateTime
                                     ? `${new Date(event.start.dateTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - ${new Date(event.end.dateTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`
                                     : '종일 일정'
                                   }
@@ -2433,47 +2942,103 @@ export default function App() {
                       <Folder className="w-5 h-5 text-indigo-500" />
                       프로젝트 목록
                     </h3>
-                    <p className="text-sm text-slate-500 mt-1">현재 진행 중인 프로젝트의 전반적인 상태를 확인합니다.</p>
+                    <p className="text-sm text-slate-500 mt-1">프로젝트를 등록하고 작업과 연결하여 진행 상황을 관리합니다.</p>
                   </div>
+                  {user && (
+                    <button
+                      onClick={() => openProjectModal()}
+                      className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors shadow-sm"
+                    >
+                      <Plus className="w-4 h-4" /> 새 프로젝트
+                    </button>
+                  )}
                 </div>
-                <div className="p-6">
-                  {/* Single Default Project for MVP */}
-                  <div className="border border-slate-200 rounded-xl overflow-hidden hover:shadow-md transition-shadow">
-                     <div className="bg-slate-50 border-b border-slate-200 p-5 flex justify-between items-start">
-                        <div>
-                          <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px-2.5 py-1 rounded-full uppercase tracking-wider">Active</span>
-                          <h4 className="text-xl font-bold text-slate-800 mt-3 mb-1">Fast-Track Agile Development</h4>
-                          <p className="text-sm text-slate-500">칸반 보드와 구글 드라이브 통합을 통한 최우선 애자일 시스템 도입</p>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-3xl font-black text-slate-800 mb-1">
-                            {tasks.length > 0 ? Math.round((tasks.filter(t => t.status === 'Done').length / tasks.length) * 100) : 0}%
+                <div className="p-6 space-y-4">
+                  {projects.length === 0 ? (
+                    <div className="text-center py-16">
+                      <Building2 className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                      <p className="font-medium text-slate-600">등록된 프로젝트가 없습니다.</p>
+                      <p className="text-sm text-slate-400 mt-1">'새 프로젝트' 버튼으로 프로젝트를 추가하세요.</p>
+                    </div>
+                  ) : (
+                    projects.map(project => {
+                      const projectTasks = tasks.filter(tk => tk.projectId === project.id);
+                      const projectMeetings = meetings.filter(m => m.projectId === project.id);
+                      const doneCount = projectTasks.filter(tk => tk.status === 'Done').length;
+                      const progress = projectTasks.length > 0 ? Math.round((doneCount / projectTasks.length) * 100) : 0;
+                      const statusColors: Record<string, string> = {
+                        'Active': 'bg-emerald-100 text-emerald-700',
+                        'On Hold': 'bg-amber-100 text-amber-700',
+                        'Completed': 'bg-blue-100 text-blue-700',
+                        'Cancelled': 'bg-slate-100 text-slate-500',
+                      };
+                      const statusLabels: Record<string, string> = {
+                        'Active': '진행중', 'On Hold': '보류', 'Completed': '완료', 'Cancelled': '취소',
+                      };
+                      return (
+                        <div key={project.id} className="border border-slate-200 rounded-xl overflow-hidden hover:shadow-md transition-shadow">
+                          <div className="p-5 flex justify-between items-start" style={{ borderLeft: `4px solid ${project.color || '#6366f1'}` }}>
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${statusColors[project.status] || 'bg-slate-100 text-slate-600'}`}>
+                                  {statusLabels[project.status] || project.status}
+                                </span>
+                                {project.endDate && (
+                                  <span className="text-xs text-slate-400 flex items-center gap-1">
+                                    <CalendarDays className="w-3 h-3" /> {project.endDate}까지
+                                  </span>
+                                )}
+                              </div>
+                              <h4 className="text-lg font-bold text-slate-800 mt-1">{project.title}</h4>
+                              {project.description && <p className="text-sm text-slate-500 mt-0.5 line-clamp-2">{project.description}</p>}
+                              <div className="mt-3 flex items-center gap-1">
+                                <div className="flex-1 bg-slate-100 rounded-full h-1.5">
+                                  <div className="h-1.5 rounded-full bg-indigo-500 transition-all" style={{ width: `${progress}%` }} />
+                                </div>
+                                <span className="text-xs font-bold text-slate-600 ml-2 shrink-0">{progress}%</span>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1 ml-4 shrink-0">
+                              <button
+                                onClick={() => openProjectModal(project)}
+                                className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => deleteProject(project.id)}
+                                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
                           </div>
-                          <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Overall Progress</p>
+                          <div className="grid grid-cols-5 divide-x divide-slate-100 border-t border-slate-100 bg-slate-50/50">
+                            <div className="p-3 flex flex-col items-center justify-center">
+                              <span className="text-lg font-bold text-slate-600">{projectTasks.filter(tk => tk.status === 'To Do').length}</span>
+                              <span className="text-[10px] font-semibold text-slate-400 uppercase mt-0.5">할 일</span>
+                            </div>
+                            <div className="p-3 flex flex-col items-center justify-center">
+                              <span className="text-lg font-bold text-blue-600">{projectTasks.filter(tk => tk.status === 'In Progress').length}</span>
+                              <span className="text-[10px] font-semibold text-blue-400 uppercase mt-0.5">진행중</span>
+                            </div>
+                            <div className="p-3 flex flex-col items-center justify-center">
+                              <span className="text-lg font-bold text-emerald-600">{doneCount}</span>
+                              <span className="text-[10px] font-semibold text-emerald-400 uppercase mt-0.5">완료</span>
+                            </div>
+                            <div className="p-3 flex flex-col items-center justify-center">
+                              <span className="text-lg font-bold text-red-600">{projectTasks.filter(tk => tk.status === 'Blocked').length}</span>
+                              <span className="text-[10px] font-semibold text-red-400 uppercase mt-0.5">차단</span>
+                            </div>
+                            <div className="p-3 flex flex-col items-center justify-center cursor-pointer hover:bg-indigo-50 transition-colors" onClick={() => setActiveTab('meetings')}>
+                              <span className="text-lg font-bold text-indigo-600">{projectMeetings.length}</span>
+                              <span className="text-[10px] font-semibold text-indigo-400 uppercase mt-0.5">회의</span>
+                            </div>
+                          </div>
                         </div>
-                     </div>
-                     <div className="p-6 grid grid-cols-4 gap-4 bg-white">
-                        <div className="p-4 bg-slate-50 rounded-lg border border-slate-100 flex flex-col items-center justify-center">
-                           <span className="text-2xl font-bold text-slate-700">{tasks.filter(t => t.status === 'To Do').length}</span>
-                           <span className="text-xs font-semibold text-slate-500 uppercase mt-1 tracking-wider">{t('status.todo')}</span>
-                        </div>
-                        <div className="p-4 bg-blue-50 rounded-lg border border-blue-100 flex flex-col items-center justify-center">
-                           <span className="text-2xl font-bold text-blue-700">{tasks.filter(t => t.status === 'In Progress').length}</span>
-                           <span className="text-xs font-semibold text-blue-500 uppercase mt-1 tracking-wider">{t('status.inProgress')}</span>
-                        </div>
-                        <div className="p-4 bg-emerald-50 rounded-lg border border-emerald-100 flex flex-col items-center justify-center">
-                           <span className="text-2xl font-bold text-emerald-700">{tasks.filter(t => t.status === 'Done').length}</span>
-                           <span className="text-xs font-semibold text-emerald-500 uppercase mt-1 tracking-wider">{t('status.done')}</span>
-                        </div>
-                        <div className="p-4 bg-red-50 rounded-lg border border-red-100 flex flex-col items-center justify-center relative overflow-hidden">
-                           <div className="absolute top-0 right-0 w-8 h-8 bg-red-100 rounded-bl-full shadow-sm flex items-start justify-end pr-1.5 pt-1.5">
-                             <div className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse"></div>
-                           </div>
-                           <span className="text-2xl font-bold text-red-700">{tasks.filter(t => t.status === 'Blocked').length}</span>
-                           <span className="text-xs font-semibold text-red-500 uppercase mt-1 tracking-wider">{t('status.blocked')}</span>
-                        </div>
-                     </div>
-                  </div>
+                      );
+                    })
+                  )}
                 </div>
               </div>
             </div>
@@ -2993,8 +3558,166 @@ export default function App() {
             </div>
           )}
 
+          {/* Teams Management (Admin Only) */}
+          {activeTab === 'teams' && isAdmin && (
+            <div className="max-w-5xl mx-auto space-y-6">
+              {/* Header */}
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="p-6 border-b border-slate-200 flex justify-between items-center">
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                      <Shield className="w-5 h-5 text-indigo-500" />
+                      팀 관리
+                      <span className="text-xs font-semibold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <Lock className="w-3 h-3" /> 관리자 전용
+                      </span>
+                    </h3>
+                    <p className="text-sm text-slate-500 mt-1">팀을 생성하고 멤버를 초대합니다. 팀 구성은 관리자만 볼 수 있습니다.</p>
+                  </div>
+                  <button
+                    onClick={() => { setEditingTeam(null); setShowTeamModal(true); }}
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors shadow-sm"
+                  >
+                    <Plus className="w-4 h-4" /> 새 팀 만들기
+                  </button>
+                </div>
+
+                {/* My team info banner (visible to all, but limited) */}
+                {myTeamInfo && (
+                  <div className="mx-6 my-4 p-4 bg-indigo-50 rounded-xl border border-indigo-200 flex items-center gap-3">
+                    <Shield className="w-5 h-5 text-indigo-500 shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold text-indigo-800">내 팀: {myTeamInfo.teamName}</p>
+                      <p className="text-xs text-indigo-600">역할: {myTeamInfo.role === 'lead' ? '팀 리더' : '멤버'}</p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="p-6 space-y-4">
+                  {teams.length === 0 ? (
+                    <div className="text-center py-16">
+                      <Shield className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                      <p className="font-medium text-slate-600">생성된 팀이 없습니다.</p>
+                      <p className="text-sm text-slate-400 mt-1">'새 팀 만들기' 버튼으로 팀을 생성하세요.</p>
+                    </div>
+                  ) : (
+                    teams.map(team => (
+                      <div key={team.id} className="border border-slate-200 rounded-xl overflow-hidden">
+                        {/* Team Header */}
+                        <div className="p-5 bg-slate-50 border-b border-slate-200 flex items-start justify-between">
+                          <div>
+                            <h4 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                              <Crown className="w-4 h-4 text-amber-500" />
+                              {team.name}
+                            </h4>
+                            {team.description && <p className="text-sm text-slate-500 mt-1">{team.description}</p>}
+                            <p className="text-xs text-slate-400 mt-2">
+                              멤버 {team.members.length}명
+                              {(team.inviteEmails || []).length > 0 && ` · 초대 대기 ${team.inviteEmails.length}명`}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => { setInviteTargetTeamId(team.id); setShowInviteModal(true); }}
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-semibold hover:bg-indigo-100 transition-colors"
+                            >
+                              <UserPlus className="w-3.5 h-3.5" /> 멤버 초대
+                            </button>
+                            <button
+                              onClick={() => { setEditingTeam(team); setShowTeamModal(true); }}
+                              className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                            >
+                              <Edit3 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => deleteTeam(team.id)}
+                              className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Members List */}
+                        {team.members.length > 0 ? (
+                          <div className="divide-y divide-slate-100">
+                            {team.members.map(member => (
+                              <div key={member.uid} className="px-5 py-3 flex items-center gap-3 hover:bg-slate-50">
+                                <img
+                                  src={member.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(member.displayName)}&background=e0e7ff&color=4338ca`}
+                                  alt={member.displayName}
+                                  className="w-8 h-8 rounded-full ring-2 ring-white shadow-sm shrink-0"
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">
+                                    {member.displayName}
+                                    {member.role === 'lead' && (
+                                      <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                                        <Crown className="w-2.5 h-2.5" /> 리더
+                                      </span>
+                                    )}
+                                  </p>
+                                  <p className="text-xs text-slate-400 truncate">{member.email}</p>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <span className="text-xs text-slate-400">
+                                    {new Date(member.joinedAt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })} 가입
+                                  </span>
+                                  <button
+                                    onClick={() => {
+                                      if (confirm(`${member.displayName}님을 팀에서 제거하시겠습니까?`)) {
+                                        removeTeamMember(team.id, member.uid);
+                                      }
+                                    }}
+                                    className="p-1 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                                    title="팀에서 제거"
+                                  >
+                                    <UserMinus className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="p-6 text-center text-slate-400 text-sm">
+                            <UserCheck className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                            아직 팀원이 없습니다. 멤버를 초대하세요.
+                          </div>
+                        )}
+
+                        {/* Pending Invites */}
+                        {(team.inviteEmails || []).length > 0 && (
+                          <div className="px-5 py-3 border-t border-dashed border-slate-200 bg-amber-50/50">
+                            <p className="text-xs font-semibold text-amber-700 mb-2">초대 대기 중</p>
+                            <div className="space-y-1">
+                              {team.inviteEmails.map(email => (
+                                <div key={email} className="flex items-center gap-2 text-xs text-amber-600">
+                                  <Globe className="w-3 h-3" />
+                                  <span>{email}</span>
+                                  <span className="text-amber-400">· 로그인 시 자동 합류</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Teams page for non-admin users */}
+          {activeTab === 'teams' && !isAdmin && (
+            <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
+              <Lock className="w-16 h-16 text-slate-300 mb-4" />
+              <p className="text-slate-600 font-semibold">관리자만 접근할 수 있습니다.</p>
+            </div>
+          )}
+
           {/* Coming Soon state for non-implemented paths */}
-          {!['announcements', 'board', 'sync', 'issues', 'calendar', 'docs', 'deadline', 'comments', 'meetings', 'projects', 'risks', 'assignees', 'review_req', 'revision_req', 'pending_appr', 'completion_log', 'ai_meeting', 'ai_action', 'ai_weekly', 'ai_delay', 'ai_blocker'].includes(activeTab) && !currentManualKey && (
+          {!['announcements', 'board', 'sync', 'issues', 'calendar', 'docs', 'deadline', 'comments', 'meetings', 'projects', 'risks', 'assignees', 'review_req', 'revision_req', 'pending_appr', 'completion_log', 'ai_meeting', 'ai_action', 'ai_weekly', 'ai_delay', 'ai_blocker', 'teams'].includes(activeTab) && !currentManualKey && (
             <div className="flex flex-col items-center justify-center min-h-[60vh] text-center opacity-0 animate-[fadeIn_0.5s_ease-out_forwards]">
               <div className="w-24 h-24 mb-6 relative">
                  <div className="absolute inset-0 bg-indigo-100 rounded-full animate-ping opacity-60 duration-1000"></div>
@@ -3041,6 +3764,7 @@ export default function App() {
                   dueDate: formData.get('dueDate') as string,
                   priority: formData.get('priority') as Priority,
                   status: formData.get('status') as Status,
+                  projectId: formData.get('projectId') as string || '',
                 });
               }} className="space-y-4">
                 
@@ -3111,6 +3835,23 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* Project Association */}
+                {projects.length > 0 && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center gap-1">
+                      <Folder className="w-3.5 h-3.5 text-indigo-400" /> 프로젝트
+                    </label>
+                    <select
+                      name="projectId"
+                      defaultValue={editingTask.projectId || ''}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all bg-white"
+                    >
+                      <option value="">프로젝트 없음</option>
+                      {projects.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
+                    </select>
+                  </div>
+                )}
+
                 {/* Feedback Center Action Area */}
                 <div className="mt-6 pt-4 border-t border-slate-200">
                    <h4 className="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
@@ -3171,6 +3912,488 @@ export default function App() {
                   {editingTask.id ? t('modal.saveChanges') : t('modal.createTask')}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Project Modal */}
+      {showProjectModal && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+              <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                <Folder className="w-5 h-5 text-indigo-500" />
+                {editingProject ? '프로젝트 수정' : '새 프로젝트'}
+              </h3>
+              <button onClick={() => { setShowProjectModal(false); setEditingProject(null); }} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto flex-1">
+              <form id="project-form" onSubmit={(e) => {
+                e.preventDefault();
+                const fd = new FormData(e.currentTarget);
+                saveProject({
+                  title: fd.get('title') as string,
+                  description: fd.get('description') as string,
+                  status: fd.get('status') as ProjectStatus,
+                  color: fd.get('color') as string,
+                  startDate: fd.get('startDate') as string,
+                  endDate: fd.get('endDate') as string,
+                });
+              }} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">프로젝트명 *</label>
+                  <input
+                    name="title"
+                    defaultValue={editingProject?.title || ''}
+                    required
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                    placeholder="프로젝트 이름을 입력하세요"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">설명</label>
+                  <textarea
+                    name="description"
+                    defaultValue={editingProject?.description || ''}
+                    rows={3}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all resize-none"
+                    placeholder="프로젝트 설명"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">상태</label>
+                    <select
+                      name="status"
+                      defaultValue={editingProject?.status || 'Active'}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                    >
+                      <option value="Active">진행중</option>
+                      <option value="On Hold">보류</option>
+                      <option value="Completed">완료</option>
+                      <option value="Cancelled">취소</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">색상</label>
+                    <input
+                      type="color"
+                      name="color"
+                      defaultValue={editingProject?.color || '#6366f1'}
+                      className="w-full h-10 px-1 py-1 border border-slate-300 rounded-lg cursor-pointer"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">시작일</label>
+                    <input
+                      type="date"
+                      name="startDate"
+                      defaultValue={editingProject?.startDate || ''}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">종료일</label>
+                    <input
+                      type="date"
+                      name="endDate"
+                      defaultValue={editingProject?.endDate || ''}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+                </div>
+              </form>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => { setShowProjectModal(false); setEditingProject(null); }}
+                className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
+              >
+                취소
+              </button>
+              <button
+                type="submit"
+                form="project-form"
+                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 shadow-sm"
+              >
+                {editingProject ? '수정 저장' : '프로젝트 생성'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Meeting Modal */}
+      {showMeetingModal && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+              <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                <Users className="w-5 h-5 text-indigo-500" />
+                {editingMeeting ? '회의 수정' : '회의 등록'}
+              </h3>
+              <button onClick={() => { setShowMeetingModal(false); setEditingMeeting(null); setMeetingInitialDate(''); }} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto flex-1">
+              <form id="meeting-form" onSubmit={(e) => {
+                e.preventDefault();
+                const fd = new FormData(e.currentTarget);
+                saveMeeting({
+                  title: fd.get('title') as string,
+                  description: fd.get('description') as string,
+                  date: fd.get('date') as string,
+                  startTime: fd.get('startTime') as string,
+                  endTime: fd.get('endTime') as string,
+                  location: fd.get('location') as string,
+                  attendees: fd.get('attendees') as string,
+                  agenda: fd.get('agenda') as string,
+                  projectId: fd.get('projectId') as string || '',
+                });
+              }} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">회의 제목 *</label>
+                  <input
+                    name="title"
+                    defaultValue={editingMeeting?.title || ''}
+                    required
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                    placeholder="회의 제목"
+                  />
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="col-span-3 sm:col-span-1">
+                    <label className="block text-sm font-medium text-slate-700 mb-1">날짜 *</label>
+                    <input
+                      type="date"
+                      name="date"
+                      defaultValue={editingMeeting?.date || meetingInitialDate || new Date().toISOString().split('T')[0]}
+                      required
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">시작 시간</label>
+                    <input
+                      type="time"
+                      name="startTime"
+                      defaultValue={editingMeeting?.startTime || ''}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">종료 시간</label>
+                    <input
+                      type="time"
+                      name="endTime"
+                      defaultValue={editingMeeting?.endTime || ''}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">장소</label>
+                    <input
+                      name="location"
+                      defaultValue={editingMeeting?.location || ''}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                      placeholder="회의실 / 화상 링크"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">참석자</label>
+                    <input
+                      name="attendees"
+                      defaultValue={editingMeeting?.attendees || ''}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                      placeholder="이름, 이름, ..."
+                    />
+                  </div>
+                </div>
+                {projects.length > 0 && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center gap-1">
+                      <Folder className="w-3.5 h-3.5 text-indigo-400" /> 연결 프로젝트
+                    </label>
+                    <select
+                      name="projectId"
+                      defaultValue={editingMeeting?.projectId || ''}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                    >
+                      <option value="">프로젝트 없음</option>
+                      {projects.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
+                    </select>
+                  </div>
+                )}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">안건 / 메모</label>
+                  <textarea
+                    name="agenda"
+                    defaultValue={editingMeeting?.agenda || ''}
+                    rows={4}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none resize-none"
+                    placeholder="회의 안건, 목표, 메모..."
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">설명</label>
+                  <textarea
+                    name="description"
+                    defaultValue={editingMeeting?.description || ''}
+                    rows={2}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none resize-none"
+                    placeholder="추가 설명"
+                  />
+                </div>
+              </form>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => { setShowMeetingModal(false); setEditingMeeting(null); setMeetingInitialDate(''); }}
+                className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
+              >
+                취소
+              </button>
+              <button
+                type="submit"
+                form="meeting-form"
+                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 shadow-sm"
+              >
+                {editingMeeting ? '수정 저장' : '회의 등록'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Team Create/Edit Modal */}
+      {showTeamModal && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+              <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                <Shield className="w-5 h-5 text-indigo-500" />
+                {editingTeam ? '팀 수정' : '새 팀 만들기'}
+              </h3>
+              <button onClick={() => { setShowTeamModal(false); setEditingTeam(null); }} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6">
+              <form id="team-form" onSubmit={(e) => {
+                e.preventDefault();
+                const fd = new FormData(e.currentTarget);
+                saveTeam({ name: fd.get('name') as string, description: fd.get('description') as string });
+              }} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">팀 이름 *</label>
+                  <input
+                    name="name"
+                    defaultValue={editingTeam?.name || ''}
+                    required
+                    autoFocus
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                    placeholder="예: 프론트엔드팀, 디자인팀..."
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">팀 설명</label>
+                  <textarea
+                    name="description"
+                    defaultValue={editingTeam?.description || ''}
+                    rows={3}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none resize-none"
+                    placeholder="팀의 역할과 목적을 간략히 설명하세요"
+                  />
+                </div>
+                <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 text-xs text-amber-700 flex items-start gap-2">
+                  <Lock className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                  팀 구성원 목록은 관리자만 열람할 수 있습니다. 팀원들은 자신의 팀 소속만 확인할 수 있습니다.
+                </div>
+              </form>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
+              <button type="button" onClick={() => { setShowTeamModal(false); setEditingTeam(null); }} className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50">취소</button>
+              <button type="submit" form="team-form" className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 shadow-sm">
+                {editingTeam ? '수정 저장' : '팀 생성'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Member Invite Modal */}
+      {showInviteModal && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+              <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                <UserPlus className="w-5 h-5 text-indigo-500" />
+                멤버 초대
+              </h3>
+              <button onClick={() => { setShowInviteModal(false); setInviteEmail(''); }} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              {inviteTargetTeamId && (
+                <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-200 text-sm text-indigo-800 font-medium flex items-center gap-2">
+                  <Shield className="w-4 h-4 text-indigo-500" />
+                  팀: {teams.find(t => t.id === inviteTargetTeamId)?.name}
+                </div>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">초대할 이메일 *</label>
+                <input
+                  type="email"
+                  value={inviteEmail}
+                  onChange={e => setInviteEmail(e.target.value)}
+                  autoFocus
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                  placeholder="team@example.com"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">역할</label>
+                <select
+                  value={inviteRole}
+                  onChange={e => setInviteRole(e.target.value as 'member' | 'lead')}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                >
+                  <option value="member">멤버</option>
+                  <option value="lead">팀 리더</option>
+                </select>
+              </div>
+              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs text-slate-600">
+                <p className="font-semibold mb-1">초대 방식</p>
+                <p>해당 이메일로 Google 로그인 시 자동으로 팀에 합류됩니다.</p>
+                <p className="mt-1 text-amber-600 font-medium flex items-center gap-1">
+                  <Lock className="w-3 h-3" /> 팀 구성원 목록은 관리자만 볼 수 있습니다.
+                </p>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
+              <button type="button" onClick={() => { setShowInviteModal(false); setInviteEmail(''); }} className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50">취소</button>
+              <button
+                onClick={inviteTeamMember}
+                disabled={!inviteEmail.trim()}
+                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                초대 발송
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Calendar Event Creation Modal */}
+      {showCalendarEventModal && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden flex flex-col">
+            <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+              <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                <CalendarDays className="w-5 h-5 text-indigo-500" />
+                새 일정 추가
+              </h3>
+              <button onClick={() => setShowCalendarEventModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6">
+              <form id="cal-event-form" onSubmit={async (e) => {
+                e.preventDefault();
+                const fd = new FormData(e.currentTarget);
+                const allDay = fd.get('allDay') === 'on';
+                const ok = await createCalendarEvent({
+                  title: fd.get('title') as string,
+                  date: fd.get('date') as string,
+                  startTime: fd.get('startTime') as string,
+                  endTime: fd.get('endTime') as string,
+                  description: fd.get('description') as string,
+                  allDay,
+                });
+                if (!ok) alert('일정 추가에 실패했습니다. Google Calendar 권한을 확인해 주세요.');
+              }} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">제목 *</label>
+                  <input
+                    name="title"
+                    required
+                    autoFocus
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                    placeholder="일정 제목"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">날짜 *</label>
+                  <input
+                    type="date"
+                    name="date"
+                    defaultValue={calendarEventInitialDate}
+                    required
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <input type="checkbox" name="allDay" id="allDay" className="w-4 h-4 text-indigo-600 rounded" />
+                  <label htmlFor="allDay" className="text-sm text-slate-700 cursor-pointer">종일 일정</label>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">시작 시간</label>
+                    <input
+                      type="time"
+                      name="startTime"
+                      defaultValue="09:00"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">종료 시간</label>
+                    <input
+                      type="time"
+                      name="endTime"
+                      defaultValue="10:00"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">설명</label>
+                  <textarea
+                    name="description"
+                    rows={3}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none resize-none"
+                    placeholder="일정 설명 (선택사항)"
+                  />
+                </div>
+                <p className="text-xs text-slate-400">Google Calendar 기본 캘린더에 추가됩니다.</p>
+              </form>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowCalendarEventModal(false)}
+                className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
+              >
+                취소
+              </button>
+              <button
+                type="submit"
+                form="cal-event-form"
+                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 shadow-sm"
+              >
+                일정 추가
+              </button>
             </div>
           </div>
         </div>

@@ -8,6 +8,8 @@ export interface NotificationSettings {
   dueDateReminder: boolean;
   commentAdded: boolean;
   feedbackRequest: boolean;
+  projectCreated: boolean;
+  meetingCreated: boolean;
 }
 
 const STORAGE_KEY = 'notification_settings';
@@ -21,6 +23,8 @@ export const defaultSettings: NotificationSettings = {
   dueDateReminder: true,
   commentAdded: true,
   feedbackRequest: true,
+  projectCreated: true,
+  meetingCreated: true,
 };
 
 export function loadSettings(): NotificationSettings {
@@ -182,5 +186,19 @@ export function notifyFeedbackRequest(title: string, type: string, t?: Translate
     const heading = t ? t('notif.push.feedback.title') : '피드백 알림';
     const body = t ? tpl(t('notif.push.feedback.body'), { title, type: typeLabel }) : `"${title}" 작업에 ${typeLabel}이 등록되었습니다.`;
     showNotification(heading, body, { tag: 'feedback' });
+  }
+}
+
+export function notifyProjectCreated(title: string): void {
+  const s = loadSettings();
+  if (s.projectCreated) {
+    showNotification('새 프로젝트 등록', `"${title}" 프로젝트가 등록되었습니다.`, { tag: 'project-created' });
+  }
+}
+
+export function notifyMeetingCreated(title: string, date: string): void {
+  const s = loadSettings();
+  if (s.meetingCreated) {
+    showNotification('새 회의 일정 등록', `"${title}" 회의가 ${date}에 예정되었습니다.`, { tag: 'meeting-created' });
   }
 }

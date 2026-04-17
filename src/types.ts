@@ -1,5 +1,6 @@
 export type Priority = 'High' | 'Medium' | 'Low';
 export type Status = 'To Do' | 'In Progress' | 'Blocked' | 'Done';
+export type ProjectStatus = 'Active' | 'On Hold' | 'Completed' | 'Cancelled';
 
 export interface Task {
   id: string;
@@ -13,6 +14,54 @@ export interface Task {
   createdBy: string;
   feedbackStatus?: 'request_review' | 'request_revision' | 'pending_approval' | 'approved';
   completedAt?: number;
+  projectId?: string;
+}
+
+export interface Project {
+  id: string;
+  title: string;
+  description: string;
+  status: ProjectStatus;
+  color: string;
+  startDate: string;
+  endDate: string;
+  createdAt: number;
+  createdBy: string;
+}
+
+export interface Meeting {
+  id: string;
+  title: string;
+  description: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  location: string;
+  attendees: string;
+  agenda: string;
+  projectId: string;
+  createdAt: number;
+  createdBy: string;
+  createdByName: string;
+}
+
+export interface TeamMember {
+  uid: string;
+  email: string;
+  displayName: string;
+  photoURL: string | null;
+  role: 'member' | 'lead';
+  joinedAt: number;
+}
+
+export interface Team {
+  id: string;
+  name: string;
+  description: string;
+  createdAt: number;
+  createdBy: string;
+  members: TeamMember[];
+  inviteEmails: string[];
 }
 
 export interface CalendarEvent {
