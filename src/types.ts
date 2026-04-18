@@ -63,6 +63,8 @@ export interface Team {
   createdBy: string;
   members: TeamMember[];
   inviteEmails: string[];
+  driveFolderId?: string;
+  driveFolderUrl?: string;
 }
 
 export interface CalendarEvent {
