@@ -3041,12 +3041,42 @@ export default function App() {
                   )}
                 </div>
               ) : isAdmin ? (
-                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
-                  <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-sm font-medium text-amber-800">팀 공유 폴더가 설정되지 않았습니다.</p>
-                    <p className="text-xs text-amber-600 mt-0.5">관리자 패널에서 Google Drive 공유 폴더를 등록하세요.</p>
+                <div className="bg-white border border-indigo-200 rounded-xl p-5 space-y-3 shadow-sm">
+                  <div className="flex items-center gap-2">
+                    <Folder className="w-5 h-5 text-indigo-500" />
+                    <h4 className="font-semibold text-slate-800">팀 공유 Drive 폴더 설정</h4>
+                    <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-bold">관리자</span>
                   </div>
+                  <p className="text-sm text-slate-500">Google Drive에서 팀 공유 폴더를 열고, 주소창 URL을 아래에 붙여넣으세요.</p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={teamFolderUrlInput}
+                      onChange={e => setTeamFolderUrlInput(e.target.value)}
+                      placeholder="https://drive.google.com/drive/folders/..."
+                      className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <button
+                      onClick={async () => {
+                        const input = teamFolderUrlInput.trim();
+                        if (!input) return;
+                        const folderId = extractFolderIdFromUrl(input);
+                        if (!folderId) { alert('올바른 Google Drive 폴더 URL이 아닙니다.'); return; }
+                        await setDoc(doc(db, 'config', 'teamDriveFolder'), {
+                          folderId,
+                          folderName: '팀 공유 폴더',
+                          folderUrl: input.startsWith('http') ? input : `https://drive.google.com/drive/folders/${folderId}`,
+                          setBy: user?.displayName || 'Admin',
+                          setAt: Date.now(),
+                        });
+                        setTeamFolderUrlInput('');
+                      }}
+                      className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors whitespace-nowrap"
+                    >
+                      폴더 등록
+                    </button>
+                  </div>
+                  <p className="text-xs text-slate-400">등록 후 팀원들이 해당 Google 계정과 공유된 경우 앱 내에서 파일 목록을 볼 수 있습니다.</p>
                 </div>
               ) : (
                 <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex items-start gap-3">
