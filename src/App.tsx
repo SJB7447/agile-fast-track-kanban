@@ -236,9 +236,15 @@ export default function App() {
   const [editingTeam, setEditingTeam] = useState<Team | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteTargetTeamId, setInviteTargetTeamId] = useState<string>('');
-  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteSelectedUid, setInviteSelectedUid] = useState('');
+  const [inviteSelectedEmail, setInviteSelectedEmail] = useState('');
+  const [inviteSearch, setInviteSearch] = useState('');
   const [inviteRole, setInviteRole] = useState<'member' | 'lead'>('member');
   const [myTeamInfo, setMyTeamInfo] = useState<{ teamId: string; teamName: string; role: string } | null>(null);
+
+  // Account Deletion State
+  const [showDeleteAccountModal, setShowDeleteAccountModal] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
 
   // Notification Center State
   interface NotifItem { id: string; title: string; body: string; tab: string; time: number; read: boolean; }
@@ -881,11 +887,11 @@ export default function App() {
   };
 
   const inviteTeamMember = async () => {
-    if (!inviteEmail.trim() || !inviteTargetTeamId || !user) return;
+    if (!inviteSelectedEmail.trim() || !inviteTargetTeamId || !user) return;
     const targetTeam = teams.find(t => t.id === inviteTargetTeamId);
     if (!targetTeam) return;
     // Save invite in team_invites collection (keyed by email)
-    await setDoc(doc(db, 'team_invites', inviteEmail.trim().toLowerCase()), {
+    await setDoc(doc(db, 'team_invites', inviteSelectedEmail.trim().toLowerCase()), {
       teamId: inviteTargetTeamId,
       teamName: targetTeam.name,
       role: inviteRole,
@@ -894,11 +900,42 @@ export default function App() {
       invitedByName: user.displayName || 'Admin',
     });
     // Also update team's inviteEmails list
-    const updatedEmails = [...new Set([...(targetTeam.inviteEmails || []), inviteEmail.trim().toLowerCase()])];
+    const updatedEmails = [...new Set([...(targetTeam.inviteEmails || []), inviteSelectedEmail.trim().toLowerCase()])];
     await setDoc(doc(db, 'teams', inviteTargetTeamId), { ...targetTeam, inviteEmails: updatedEmails });
-    setInviteEmail('');
+    const sentToEmail = inviteSelectedEmail;
+    setInviteSelectedUid('');
+    setInviteSelectedEmail('');
+    setInviteSearch('');
     setShowInviteModal(false);
-    alert(`${inviteEmail}에게 팀 초대를 발송했습니다.`);
+    alert(`${sentToEmail}에게 팀 초대를 발송했습니다.`);
+  };
+
+  // Account Deletion Handlers
+  const handleDeleteAccount = async () => {
+    if (!user) return;
+    try {
+      const fn = httpsCallable(functions, 'deleteOwnAccount');
+      await fn({});
+      setShowDeleteAccountModal(false);
+      setDeleteConfirmText('');
+      await handleLogout();
+    } catch (e) {
+      console.error('계정 탈퇴 실패:', e);
+      alert('계정 탈퇴에 실패했습니다. 잠시 후 다시 시도해 주세요.');
+    }
+  };
+
+  const adminForceDeleteUser = async (targetUid: string, targetName: string) => {
+    if (targetUid === user?.uid) { alert('본인 계정은 이 버튼으로 삭제할 수 없습니다.'); return; }
+    if (!confirm(`${targetName}님의 계정을 영구 삭제하시겠습니까?\n모든 데이터(프로필, 팀, 알림, 권한)가 삭제됩니다.`)) return;
+    try {
+      const fn = httpsCallable(functions, 'adminDeleteUser');
+      await fn({ targetUid });
+      alert(`${targetName}님의 계정이 삭제되었습니다.`);
+    } catch (e) {
+      console.error('계정 삭제 실패:', e);
+      alert('계정 삭제에 실패했습니다. 잠시 후 다시 시도해 주세요.');
+    }
   };
 
   const removeTeamMember = async (teamId: string, memberUid: string) => {
@@ -1763,6 +1800,20 @@ export default function App() {
                             <LogOut className="w-4 h-4 text-slate-500 group-hover:text-red-500 transition-colors" />
                           </div>
                           <p className="text-[13px] font-semibold text-slate-700 group-hover:text-red-600 transition-colors">{t('auth.logout')}</p>
+                        </button>
+
+                        {/* Delete Account */}
+                        <button
+                          onClick={() => { setShowProfileMenu(false); setProfilePanel('main'); setShowDeleteAccountModal(true); }}
+                          className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-red-50 transition-colors group"
+                        >
+                          <div className="w-8 h-8 rounded-lg bg-slate-100 group-hover:bg-red-100 flex items-center justify-center transition-colors">
+                            <Trash2 className="w-4 h-4 text-slate-400 group-hover:text-red-500 transition-colors" />
+                          </div>
+                          <div>
+                            <p className="text-[13px] font-semibold text-slate-500 group-hover:text-red-600 transition-colors">계정 탈퇴</p>
+                            <p className="text-[11px] text-slate-400">모든 데이터 영구 삭제</p>
+                          </div>
                         </button>
                       </div>
                     </div>
@@ -3900,6 +3951,15 @@ export default function App() {
                                 <UserMinus className="w-3.5 h-3.5" /> 팀 제거
                               </button>
                             )}
+                            {!isSelf && (
+                              <button
+                                onClick={() => adminForceDeleteUser(u.uid, u.displayName)}
+                                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-white bg-red-600 border border-red-700 rounded-lg hover:bg-red-700 transition-colors"
+                                title="계정 영구 삭제"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" /> 계정 삭제
+                              </button>
+                            )}
                           </div>
                         </div>
                       );
@@ -4433,63 +4493,182 @@ export default function App() {
       )}
 
       {/* Member Invite Modal */}
-      {showInviteModal && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
-              <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
-                <UserPlus className="w-5 h-5 text-indigo-500" />
-                멤버 초대
+      {showInviteModal && (() => {
+        const targetTeam = teams.find(t => t.id === inviteTargetTeamId);
+        const existingMemberUids = new Set((targetTeam?.members || []).map(m => m.uid));
+        const alreadyInvitedEmails = new Set((targetTeam?.inviteEmails || []).map(e => e.toLowerCase()));
+        const q = inviteSearch.trim().toLowerCase();
+        const candidateUsers = allUsers.filter(u => {
+          if (existingMemberUids.has(u.uid)) return false;
+          if (alreadyInvitedEmails.has((u.email || '').toLowerCase())) return false;
+          if (!q) return true;
+          return (u.displayName || '').toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q);
+        });
+        const closeModal = () => {
+          setShowInviteModal(false);
+          setInviteSelectedUid('');
+          setInviteSelectedEmail('');
+          setInviteSearch('');
+        };
+        return (
+          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden flex flex-col max-h-[85vh]">
+              <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
+                <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                  <UserPlus className="w-5 h-5 text-indigo-500" />
+                  멤버 초대
+                </h3>
+                <button onClick={closeModal} className="text-slate-400 hover:text-slate-600">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-6 space-y-4 overflow-y-auto">
+                {inviteTargetTeamId && (
+                  <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-200 text-sm text-indigo-800 font-medium flex items-center gap-2">
+                    <Shield className="w-4 h-4 text-indigo-500" />
+                    팀: {targetTeam?.name}
+                  </div>
+                )}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">가입자 검색</label>
+                  <input
+                    type="text"
+                    value={inviteSearch}
+                    onChange={e => setInviteSearch(e.target.value)}
+                    autoFocus
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                    placeholder="이름 또는 이메일로 검색"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    가입된 사용자 {candidateUsers.length > 0 && <span className="text-slate-400 font-normal">({candidateUsers.length}명)</span>}
+                  </label>
+                  <div className="border border-slate-200 rounded-lg max-h-64 overflow-y-auto divide-y divide-slate-100">
+                    {candidateUsers.length === 0 ? (
+                      <div className="p-6 text-center text-sm text-slate-400">
+                        {allUsers.length === 0 ? '가입된 사용자가 없습니다.' : '초대 가능한 사용자가 없습니다.'}
+                      </div>
+                    ) : (
+                      candidateUsers.map(u => {
+                        const selected = inviteSelectedUid === u.uid;
+                        return (
+                          <button
+                            key={u.uid}
+                            type="button"
+                            onClick={() => {
+                              if (selected) {
+                                setInviteSelectedUid('');
+                                setInviteSelectedEmail('');
+                              } else {
+                                setInviteSelectedUid(u.uid);
+                                setInviteSelectedEmail(u.email || '');
+                              }
+                            }}
+                            className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors ${
+                              selected ? 'bg-indigo-50 ring-1 ring-inset ring-indigo-300' : 'hover:bg-slate-50'
+                            }`}
+                          >
+                            <img
+                              src={u.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(u.displayName)}&background=e0e7ff&color=4338ca`}
+                              alt={u.displayName}
+                              className="w-9 h-9 rounded-full ring-2 ring-white shadow-sm shrink-0"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <p className={`text-sm font-semibold truncate ${selected ? 'text-indigo-800' : 'text-slate-800'}`}>{u.displayName}</p>
+                              <p className="text-xs text-slate-400 truncate">{u.email}</p>
+                            </div>
+                            {selected && <CheckCircle2 className="w-4 h-4 text-indigo-500 shrink-0" />}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">역할</label>
+                  <select
+                    value={inviteRole}
+                    onChange={e => setInviteRole(e.target.value as 'member' | 'lead')}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                  >
+                    <option value="member">멤버</option>
+                    <option value="lead">팀 리더</option>
+                  </select>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs text-slate-600">
+                  <p className="font-semibold mb-1">초대 방식</p>
+                  <p>선택된 사용자의 이메일로 초대가 등록되며, 다음 로그인 시 자동 합류됩니다.</p>
+                  <p className="mt-1 text-amber-600 font-medium flex items-center gap-1">
+                    <Lock className="w-3 h-3" /> 팀 구성원 목록은 관리자만 볼 수 있습니다.
+                  </p>
+                </div>
+              </div>
+              <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3 shrink-0">
+                <button type="button" onClick={closeModal} className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50">취소</button>
+                <button
+                  onClick={inviteTeamMember}
+                  disabled={!inviteSelectedEmail}
+                  className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  초대 발송
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Delete Account Confirmation Modal */}
+      {showDeleteAccountModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-red-100 bg-red-50 flex justify-between items-center">
+              <h3 className="text-lg font-semibold text-red-700 flex items-center gap-2">
+                <Trash2 className="w-5 h-5" />
+                계정 탈퇴
               </h3>
-              <button onClick={() => { setShowInviteModal(false); setInviteEmail(''); }} className="text-slate-400 hover:text-slate-600">
+              <button onClick={() => { setShowDeleteAccountModal(false); setDeleteConfirmText(''); }} className="text-slate-400 hover:text-slate-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
             <div className="p-6 space-y-4">
-              {inviteTargetTeamId && (
-                <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-200 text-sm text-indigo-800 font-medium flex items-center gap-2">
-                  <Shield className="w-4 h-4 text-indigo-500" />
-                  팀: {teams.find(t => t.id === inviteTargetTeamId)?.name}
-                </div>
-              )}
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 space-y-1">
+                <p className="font-semibold">⚠️ 탈퇴 시 다음 데이터가 영구 삭제됩니다:</p>
+                <ul className="list-disc list-inside space-y-0.5 text-xs mt-1">
+                  <li>프로필 및 계정 정보</li>
+                  <li>팀 소속 정보</li>
+                  <li>알림 토큰 및 설정</li>
+                </ul>
+              </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">초대할 이메일 *</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  확인을 위해 <span className="font-bold text-red-600">"탈퇴"</span>를 입력하세요
+                </label>
                 <input
-                  type="email"
-                  value={inviteEmail}
-                  onChange={e => setInviteEmail(e.target.value)}
+                  type="text"
+                  value={deleteConfirmText}
+                  onChange={e => setDeleteConfirmText(e.target.value)}
                   autoFocus
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-                  placeholder="team@example.com"
+                  placeholder="탈퇴"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-red-400 outline-none transition-all"
                 />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">역할</label>
-                <select
-                  value={inviteRole}
-                  onChange={e => setInviteRole(e.target.value as 'member' | 'lead')}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
-                >
-                  <option value="member">멤버</option>
-                  <option value="lead">팀 리더</option>
-                </select>
-              </div>
-              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs text-slate-600">
-                <p className="font-semibold mb-1">초대 방식</p>
-                <p>해당 이메일로 Google 로그인 시 자동으로 팀에 합류됩니다.</p>
-                <p className="mt-1 text-amber-600 font-medium flex items-center gap-1">
-                  <Lock className="w-3 h-3" /> 팀 구성원 목록은 관리자만 볼 수 있습니다.
-                </p>
               </div>
             </div>
             <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
-              <button type="button" onClick={() => { setShowInviteModal(false); setInviteEmail(''); }} className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50">취소</button>
               <button
-                onClick={inviteTeamMember}
-                disabled={!inviteEmail.trim()}
-                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                type="button"
+                onClick={() => { setShowDeleteAccountModal(false); setDeleteConfirmText(''); }}
+                className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
               >
-                초대 발송
+                취소
+              </button>
+              <button
+                onClick={handleDeleteAccount}
+                disabled={deleteConfirmText !== '탈퇴'}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                계정 영구 삭제
               </button>
             </div>
           </div>

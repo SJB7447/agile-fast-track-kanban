@@ -276,6 +276,62 @@ exports.onUserDeleted = auth.user().onDelete(async (user) => {
   await db.collection('users').doc(user.uid).delete().catch(() => {});
 });
 
+// ========== Callable: Delete own account ==========
+exports.deleteOwnAccount = onCall({ region: 'us-central1' }, async (request) => {
+  if (!request.auth) throw new Error('unauthenticated');
+  const uid = request.auth.uid;
+  // Firestore cleanup
+  await db.collection('users').doc(uid).delete().catch(() => {});
+  await db.collection('userTeams').doc(uid).delete().catch(() => {});
+  await db.collection('admins').doc(uid).delete().catch(() => {});
+  // Remove from any team members array
+  const teamsSnap = await db.collection('teams').get();
+  const batch = db.batch();
+  teamsSnap.docs.forEach(teamDoc => {
+    const team = teamDoc.data();
+    if (team.members?.some(m => m.uid === uid)) {
+      batch.update(teamDoc.ref, { members: team.members.filter(m => m.uid !== uid) });
+    }
+  });
+  await batch.commit();
+  // Remove FCM tokens
+  const tokensSnap = await db.collection('fcm_tokens').get();
+  const tokenDeletes = [];
+  tokensSnap.forEach(doc => { if (doc.data().uid === uid) tokenDeletes.push(doc.ref.delete()); });
+  await Promise.all(tokenDeletes);
+  // Delete Firebase Auth account
+  await getAuth().deleteUser(uid);
+  return { success: true };
+});
+
+// ========== Callable: Admin force-delete user ==========
+exports.adminDeleteUser = onCall({ region: 'us-central1' }, async (request) => {
+  if (!request.auth) throw new Error('unauthenticated');
+  const adminDoc = await db.collection('admins').doc(request.auth.uid).get();
+  if (!adminDoc.exists) throw new Error('permission-denied');
+  const { targetUid } = request.data;
+  if (!targetUid) throw new Error('invalid-argument');
+  // Same cleanup as deleteOwnAccount
+  await db.collection('users').doc(targetUid).delete().catch(() => {});
+  await db.collection('userTeams').doc(targetUid).delete().catch(() => {});
+  await db.collection('admins').doc(targetUid).delete().catch(() => {});
+  const teamsSnap = await db.collection('teams').get();
+  const batch = db.batch();
+  teamsSnap.docs.forEach(teamDoc => {
+    const team = teamDoc.data();
+    if (team.members?.some(m => m.uid === targetUid)) {
+      batch.update(teamDoc.ref, { members: team.members.filter(m => m.uid !== targetUid) });
+    }
+  });
+  await batch.commit();
+  const tokensSnap = await db.collection('fcm_tokens').get();
+  const tokenDeletes = [];
+  tokensSnap.forEach(doc => { if (doc.data().uid === targetUid) tokenDeletes.push(doc.ref.delete()); });
+  await Promise.all(tokenDeletes);
+  await getAuth().deleteUser(targetUid);
+  return { success: true };
+});
+
 // ========== Callable: Sync all Firebase Auth users to Firestore ==========
 exports.syncAuthUsers = onCall({ region: 'us-central1' }, async (request) => {
   if (!request.auth) {
