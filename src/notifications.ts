@@ -83,16 +83,21 @@ export async function showNotification(
   if ('serviceWorker' in navigator) {
     try {
       const reg = await navigator.serviceWorker.ready;
-      await reg.showNotification(title, {
+      const notifOptions: NotificationOptions = {
         body,
         icon: options?.icon || '/icons/icon-192.png',
-        badge: '/icons/icon-192.png',
         tag: options?.tag || 'default',
-        renotify: true,
-        vibrate: [200, 100, 200],
-        silent: false,
         data: { url: options?.url || '/' },
-      } as NotificationOptions);
+      };
+      // badge/vibrate/renotify: not supported on iOS Safari — guard to avoid errors
+      if ('ExperimentalBadge' in navigator || navigator.userAgent.includes('Chrome') || navigator.userAgent.includes('Firefox')) {
+        (notifOptions as Record<string, unknown>).badge = '/icons/icon-192.png';
+        (notifOptions as Record<string, unknown>).renotify = true;
+      }
+      if ('vibrate' in navigator) {
+        (notifOptions as Record<string, unknown>).vibrate = [200, 100, 200];
+      }
+      await reg.showNotification(title, notifOptions);
       return;
     } catch (e) {
       console.warn('SW notification failed, falling back:', e);

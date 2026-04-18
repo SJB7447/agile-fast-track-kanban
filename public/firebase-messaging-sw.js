@@ -1,38 +1,80 @@
 // Unified Service Worker: PWA Caching + Firebase Cloud Messaging
-importScripts('https://www.googleapis.com/firebasejs/10.12.0/firebase-app-compat.js');
-importScripts('https://www.googleapis.com/firebasejs/10.12.0/firebase-messaging-compat.js');
+
+// ===== Safe notification helper (iOS-compatible) =====
+function showSafeNotification(title, body, data) {
+  const options = {
+    body: body || '',
+    icon: '/icons/icon-192.png',
+    tag: (data && data.tag) || 'fcm-default',
+    data: { url: (data && data.url) || '/' },
+  };
+  // badge / vibrate / renotify are not supported on iOS Safari — omit to prevent SW failure
+  const ua = (self.navigator && self.navigator.userAgent) || '';
+  const isIOS = /iP(hone|ad|od)/.test(ua);
+  if (!isIOS) {
+    options.badge = '/icons/icon-192.png';
+    options.renotify = true;
+    options.vibrate = [200, 100, 200];
+  }
+  return self.registration.showNotification(title || 'Fast-Track Agile', options);
+}
 
 // ===== Firebase Cloud Messaging =====
-const firebaseConfig = {
-  apiKey: 'AIzaSyBbNjH84SOMYxxyd65VpV1ZWhDwudywC70',
-  authDomain: 'arboreal-melody-479205-g8.firebaseapp.com',
-  projectId: 'arboreal-melody-479205-g8',
-  storageBucket: 'arboreal-melody-479205-g8.firebasestorage.app',
-  messagingSenderId: '485530846598',
-  appId: '1:485530846598:web:cae4891a36e6fde1469807',
-};
+// Wrapped in try-catch: if CDN import fails on iOS Safari, fallback push handler takes over
+let firebaseMessagingReady = false;
+try {
+  importScripts('https://www.googleapis.com/firebasejs/10.12.0/firebase-app-compat.js');
+  importScripts('https://www.googleapis.com/firebasejs/10.12.0/firebase-messaging-compat.js');
 
-firebase.initializeApp(firebaseConfig);
-const messaging = firebase.messaging();
+  const firebaseConfig = {
+    apiKey: 'AIzaSyBbNjH84SOMYxxyd65VpV1ZWhDwudywC70',
+    authDomain: 'arboreal-melody-479205-g8.firebaseapp.com',
+    projectId: 'arboreal-melody-479205-g8',
+    storageBucket: 'arboreal-melody-479205-g8.firebasestorage.app',
+    messagingSenderId: '485530846598',
+    appId: '1:485530846598:web:cae4891a36e6fde1469807',
+  };
 
-// Handle background push messages (when app is closed or in background)
-messaging.onBackgroundMessage((payload) => {
-  const { title, body, icon } = payload.notification || {};
-  const data = payload.data || {};
+  firebase.initializeApp(firebaseConfig);
+  const messaging = firebase.messaging();
+  firebaseMessagingReady = true;
 
-  self.registration.showNotification(title || 'Fast-Track Agile', {
-    body: body || '',
-    icon: icon || '/icons/icon-192.png',
-    badge: '/icons/icon-192.png',
-    vibrate: [200, 100, 200],
-    tag: data.tag || 'fcm-default',
-    renotify: true,
-    data: { url: data.url || '/' },
+  // Handle background FCM messages (app closed / backgrounded)
+  messaging.onBackgroundMessage((payload) => {
+    const { title, body } = payload.notification || {};
+    const data = payload.data || {};
+    return showSafeNotification(title, body, data);
   });
+} catch (e) {
+  // Firebase failed to load (e.g. iOS Safari CDN restriction) — fallback push handler below
+  console.warn('[SW] Firebase messaging unavailable, using native push fallback:', e);
+}
+
+// ===== Fallback: Native Web Push handler =====
+// Runs when Firebase messaging is not active (iOS Safari, offline CDN, etc.)
+self.addEventListener('push', (event) => {
+  if (firebaseMessagingReady) return; // Firebase handles it when active
+
+  let title = 'Fast-Track Agile';
+  let body = '';
+  let data = {};
+  if (event.data) {
+    try {
+      const json = event.data.json();
+      // FCM payload structure
+      title = (json.notification && json.notification.title) || json.title || title;
+      body = (json.notification && json.notification.body) || json.body || '';
+      data = json.data || {};
+    } catch {
+      body = event.data.text();
+    }
+  }
+
+  event.waitUntil(showSafeNotification(title, body, data));
 });
 
 // ===== PWA Caching =====
-const CACHE_NAME = 'fast-track-v5';
+const CACHE_NAME = 'fast-track-v6';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -41,7 +83,6 @@ const STATIC_ASSETS = [
   '/icons/icon-512.png',
 ];
 
-// Install: cache static assets
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
@@ -49,7 +90,6 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
-// Activate: clean old caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
@@ -59,7 +99,6 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Fetch: network-first for navigation/API, cache-first for static assets
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') return;
@@ -77,7 +116,12 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  if (request.url.includes('/api/') || request.url.includes('googleapis.com') || request.url.includes('firestore')) {
+  if (
+    request.url.includes('/api/') ||
+    request.url.includes('googleapis.com') ||
+    request.url.includes('firestore') ||
+    request.url.includes('fcm')
+  ) {
     return;
   }
 
@@ -95,33 +139,7 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-// ===== Notification Handlers =====
-
-// Push notification handler (for direct push, non-FCM)
-self.addEventListener('push', (event) => {
-  let data = { title: 'Fast-Track Agile', body: '', icon: '/icons/icon-192.png' };
-  if (event.data) {
-    try {
-      data = { ...data, ...event.data.json() };
-    } catch (e) {
-      data.body = event.data.text();
-    }
-  }
-
-  event.waitUntil(
-    self.registration.showNotification(data.title, {
-      body: data.body,
-      icon: data.icon || '/icons/icon-192.png',
-      badge: '/icons/icon-192.png',
-      vibrate: [200, 100, 200],
-      tag: data.tag || 'default',
-      renotify: true,
-      data: { url: data.url || '/' },
-    })
-  );
-});
-
-// Notification click handler
+// ===== Notification click handler =====
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const targetUrl = event.notification.data?.url || '/';
@@ -130,7 +148,6 @@ self.addEventListener('notificationclick', (event) => {
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
         if (new URL(client.url).origin === self.location.origin && 'focus' in client) {
-          // Send message to navigate to the correct tab
           client.postMessage({ type: 'NAVIGATE_TAB', url: targetUrl });
           return client.focus();
         }
@@ -140,7 +157,7 @@ self.addEventListener('notificationclick', (event) => {
   );
 });
 
-// Listen for messages from main app
+// ===== Message handler =====
 self.addEventListener('message', (event) => {
   if (event.data?.type === 'SKIP_WAITING') {
     self.skipWaiting();

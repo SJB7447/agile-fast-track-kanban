@@ -1898,6 +1898,20 @@ export default function App() {
                           </div>
                         )}
 
+                        {/* iOS non-PWA banner */}
+                        {(() => {
+                          const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent);
+                          const isStandalone = (window.navigator as Record<string, unknown>).standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+                          if (!isIOS || isStandalone) return null;
+                          return (
+                            <div className="mb-3 p-2.5 rounded-lg text-[12px] font-medium bg-blue-50 text-blue-800 border border-blue-200 space-y-1">
+                              <p className="font-bold flex items-center gap-1.5">📱 iPhone 알림 설정 필요</p>
+                              <p>iPhone에서 푸시 알림을 받으려면 <strong>홈 화면에 추가</strong>가 필요합니다.</p>
+                              <p className="text-blue-600">Safari → 공유 버튼(↑) → <strong>홈 화면에 추가</strong></p>
+                            </div>
+                          );
+                        })()}
+
                         {/* Master Toggle */}
                         <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-lg border border-slate-100 mb-3">
                           <div>
