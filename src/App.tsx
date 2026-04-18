@@ -1354,20 +1354,41 @@ export default function App() {
   }, [googleAccessToken, driveFolderId]);
 
   // Load team folder config from Firestore
+  const applyTeamFolderConfig = (data: {folderId: string; folderName: string; folderUrl: string; setBy: string; setAt: number} | null) => {
+    if (data) {
+      setTeamFolderConfig(data);
+      setTeamFolderCurrentId(data.folderId);
+      setTeamFolderPath([{ id: data.folderId, name: data.folderName }]);
+    } else {
+      setTeamFolderConfig(null);
+      setTeamFolderCurrentId('');
+      setTeamFolderPath([]);
+    }
+  };
+
+  const refreshTeamFolderConfig = async () => {
+    try {
+      const snap = await getDoc(doc(db, 'config', 'teamDriveFolder'));
+      applyTeamFolderConfig(snap.exists() ? snap.data() as any : null);
+    } catch (e) {
+      console.warn('Team folder config read error:', e);
+    }
+  };
+
   useEffect(() => {
-    const unsub = onSnapshot(doc(db, 'config', 'teamDriveFolder'), snap => {
-      if (snap.exists()) {
-        const data = snap.data() as {folderId: string; folderName: string; folderUrl: string; setBy: string; setAt: number};
-        setTeamFolderConfig(data);
-        setTeamFolderCurrentId(data.folderId);
-        setTeamFolderPath([{ id: data.folderId, name: data.folderName }]);
-      } else {
-        setTeamFolderConfig(null);
-        setTeamFolderCurrentId('');
-        setTeamFolderPath([]);
+    const unsub = onSnapshot(
+      doc(db, 'config', 'teamDriveFolder'),
+      snap => {
+        applyTeamFolderConfig(snap.exists() ? snap.data() as any : null);
+      },
+      err => {
+        console.warn('Team folder config snapshot error:', err);
+        // Fallback: try direct read
+        refreshTeamFolderConfig();
       }
-    });
+    );
     return unsub;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Team folder file loading
@@ -2632,9 +2653,11 @@ export default function App() {
                           setTeamFolderSaveMsg(null);
                           try {
                             const fn = httpsCallable(functions, 'setTeamFolderConfig');
-                            await fn({ folderId, folderName: '팀 공유 폴더', folderUrl: input.startsWith('http') ? input : `https://drive.google.com/drive/folders/${folderId}` });
+                            const folderUrl = input.startsWith('http') ? input : `https://drive.google.com/drive/folders/${folderId}`;
+                            await fn({ folderId, folderName: '팀 공유 폴더', folderUrl });
                             setTeamFolderUrlInput('');
                             setTeamFolderSaveMsg({ type: 'success', text: '폴더가 등록되었습니다!' });
+                            await refreshTeamFolderConfig();
                           } catch (e: any) {
                             console.error('Team folder save error:', e);
                             setTeamFolderSaveMsg({ type: 'error', text: `저장 실패: ${e?.message || '알 수 없는 오류'}` });
@@ -3258,12 +3281,11 @@ export default function App() {
                         setTeamFolderSaveMsg(null);
                         try {
                           const fn = httpsCallable(functions, 'setTeamFolderConfig');
-                          await fn({ folderId, folderName: '팀 공유 폴더', folderUrl: input.startsWith('http') ? input : `https://drive.google.com/drive/folders/${folderId}` });
+                          const folderUrl = input.startsWith('http') ? input : `https://drive.google.com/drive/folders/${folderId}`;
+                          await fn({ folderId, folderName: '팀 공유 폴더', folderUrl });
                           setTeamFolderUrlInput('');
-                          setTeamFolderCurrentId(folderId);
-                          setTeamFolderPath([{ id: folderId, name: '팀 공유 폴더' }]);
                           setTeamFolderSaveMsg({ type: 'success', text: '폴더가 등록되었습니다!' });
-                          setTimeout(() => loadTeamFolderFiles(folderId), 300);
+                          await refreshTeamFolderConfig();
                         } catch (e: any) {
                           console.error('Team folder save error:', e);
                           {
