@@ -8,7 +8,7 @@ const { getAuth } = require('firebase-admin/auth');
 
 initializeApp();
 
-const DATABASE_ID = 'ai-studio-e8ec37ff-210b-4a12-b903-a1e7fa79036f';
+const DATABASE_ID = process.env.DATABASE_ID;
 const db = getFirestore(DATABASE_ID);
 
 /**
