@@ -3,7 +3,14 @@
     "source": "functions",
     "runtime": "nodejs20"
   },
-  "firestore": {
-    "rules": "firestore.rules"
-  }
+  "firestore": [
+    {
+      "database": "(default)",
+      "rules": "firestore.rules"
+    },
+    {
+      "database": "ai-studio-e8ec37ff-210b-4a12-b903-a1e7fa79036f",
+      "rules": "firestore.rules"
+    }
+  ]
 }
