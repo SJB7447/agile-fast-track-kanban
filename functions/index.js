@@ -14,6 +14,46 @@ const db = getFirestore(DATABASE_ID);
 /**
  * Send FCM multicast, auto-clean invalid tokens.
  */
+async function sendMulticast(notification, data, tokens, tokenDocs) {
+  if (tokens.length === 0) return;
+
+  const message = {
+    notification,
+    data,
+    tokens,
+    webpush: {
+      notification: {
+        icon: '/icons/icon-192.png',
+        badge: '/icons/icon-192.png',
+        vibrate: [200, 100, 200],
+        renotify: true,
+        tag: data.tag || 'default',
+      },
+      fcmOptions: { link: '/' },
+    },
+  };
+
+  try {
+    const response = await getMessaging().sendEachForMulticast(message);
+    console.log(`Sent ${response.successCount}/${tokens.length} notifications`);
+    if (response.failureCount > 0) {
+      const deletes = [];
+      response.responses.forEach((resp, idx) => {
+        if (!resp.success) {
+          const code = resp.error?.code;
+          if (code === 'messaging/invalid-registration-token' ||
+              code === 'messaging/registration-token-not-registered') {
+            deletes.push(tokenDocs[idx].ref.delete());
+          }
+        }
+      });
+      if (deletes.length > 0) await Promise.all(deletes);
+    }
+  } catch (error) {
+    console.error('FCM send error:', error);
+  }
+}
+
 async function sendToAllTokens(notification, data, excludeUid) {
   const tokensSnapshot = await db.collection('fcm_tokens').get();
   if (tokensSnapshot.empty) {
@@ -36,49 +76,51 @@ async function sendToAllTokens(notification, data, excludeUid) {
     return;
   }
 
-  const message = {
-    notification,
-    data,
-    tokens,
-    webpush: {
-      notification: {
-        icon: '/icons/icon-192.png',
-        badge: '/icons/icon-192.png',
-        vibrate: [200, 100, 200],
-        renotify: true,
-        tag: data.tag || 'default',
-      },
-      fcmOptions: {
-        link: '/',
-      },
-    },
-  };
+  await sendMulticast(notification, data, tokens, tokenDocs);
+}
 
-  try {
-    const response = await getMessaging().sendEachForMulticast(message);
-    console.log(`Sent ${response.successCount}/${tokens.length} notifications`);
+/**
+ * Send FCM to all admin users only.
+ */
+async function sendToAdmins(notification, data) {
+  const adminsSnap = await db.collection('admins').get();
+  if (adminsSnap.empty) return;
+  const adminUids = new Set(adminsSnap.docs.map(d => d.id));
 
-    if (response.failureCount > 0) {
-      const tokensToDelete = [];
-      response.responses.forEach((resp, idx) => {
-        if (!resp.success) {
-          const errorCode = resp.error?.code;
-          if (
-            errorCode === 'messaging/invalid-registration-token' ||
-            errorCode === 'messaging/registration-token-not-registered'
-          ) {
-            tokensToDelete.push(tokenDocs[idx].ref.delete());
-          }
-        }
-      });
-      if (tokensToDelete.length > 0) {
-        await Promise.all(tokensToDelete);
-        console.log(`Cleaned up ${tokensToDelete.length} invalid tokens`);
-      }
+  const tokensSnap = await db.collection('fcm_tokens').get();
+  if (tokensSnap.empty) return;
+
+  const tokens = [];
+  const tokenDocs = [];
+  tokensSnap.forEach(doc => {
+    const td = doc.data();
+    if (adminUids.has(td.uid)) {
+      tokens.push(td.token);
+      tokenDocs.push(doc);
     }
-  } catch (error) {
-    console.error('FCM send error:', error);
-  }
+  });
+
+  await sendMulticast(notification, data, tokens, tokenDocs);
+}
+
+/**
+ * Send FCM to a specific user by UID.
+ */
+async function sendToUserByUid(uid, notification, data) {
+  const tokensSnap = await db.collection('fcm_tokens').get();
+  if (tokensSnap.empty) return;
+
+  const tokens = [];
+  const tokenDocs = [];
+  tokensSnap.forEach(doc => {
+    const td = doc.data();
+    if (td.uid === uid) {
+      tokens.push(td.token);
+      tokenDocs.push(doc);
+    }
+  });
+
+  await sendMulticast(notification, data, tokens, tokenDocs);
 }
 
 // ========== Announcement Created ==========
@@ -181,17 +223,52 @@ exports.onCommentCreated = onDocumentCreated(
   }
 );
 
+// ========== Team Invite Created ==========
+exports.onTeamInviteCreated = onDocumentCreated(
+  { document: 'team_invites/{email}', database: DATABASE_ID },
+  async (event) => {
+    const invite = event.data?.data();
+    const email = event.params?.email;
+    if (!invite || !email) return;
+
+    // Find the invited user's UID via the users collection
+    const usersSnap = await db.collection('users').where('email', '==', email).limit(1).get();
+    if (!usersSnap.empty) {
+      const uid = usersSnap.docs[0].id;
+      await sendToUserByUid(
+        uid,
+        { title: '📩 팀 초대', body: `"${invite.teamName}" 팀에 초대되었습니다.` },
+        { type: 'team-invite', tag: 'team-invite', url: '/?tab=teams' }
+      );
+    }
+
+    // Also notify all admins about the invite
+    const invitedBy = invite.invitedByName || invite.invitedBy || '관리자';
+    await sendToAdmins(
+      { title: '📩 팀 초대 발송', body: `${invitedBy} → ${email} (${invite.teamName})` },
+      { type: 'team-invite-sent', tag: 'team-invite-sent', url: '/?tab=teams' }
+    );
+  }
+);
+
 // ========== Auth: Auto-save user profile on sign-up ==========
 exports.onUserCreated = auth.user().onCreate(async (user) => {
   const now = Date.now();
+  const displayName = user.displayName || user.email || '알 수 없음';
   await db.collection('users').doc(user.uid).set({
     uid: user.uid,
     email: user.email || '',
-    displayName: user.displayName || user.email || '알 수 없음',
+    displayName,
     photoURL: user.photoURL || null,
     lastLoginAt: now,
     createdAt: now,
   });
+
+  // Notify all admins about the new sign-up
+  await sendToAdmins(
+    { title: '👤 새 가입자', body: `${displayName} (${user.email || ''}) 가입했습니다.` },
+    { type: 'new-user', tag: 'new-user', url: '/?tab=members' }
+  );
 });
 
 // ========== Auth: Clean up user data on delete ==========

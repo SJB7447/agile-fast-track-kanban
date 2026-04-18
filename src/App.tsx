@@ -95,6 +95,7 @@ import {
   Crown,
   UserMinus,
   UserPlus,
+  Mail,
   Lock,
   Globe,
   RefreshCw,
@@ -1821,6 +1822,8 @@ export default function App() {
                             { key: 'feedbackRequest', label: t('notif.feedbackRequest'), icon: <Eye className="w-3.5 h-3.5" /> },
                             { key: 'projectCreated', label: '새 프로젝트 등록', icon: <Folder className="w-3.5 h-3.5" /> },
                             { key: 'meetingCreated', label: '새 회의 일정 등록', icon: <Users className="w-3.5 h-3.5" /> },
+                            { key: 'newUserJoined', label: '새 가입자 알림', icon: <UserPlus className="w-3.5 h-3.5" /> },
+                            { key: 'teamInvite', label: '팀 초대 알림', icon: <Mail className="w-3.5 h-3.5" /> },
                           ] as { key: keyof NotificationSettings; label: string; icon: React.ReactNode }[]).map(item => (
                             <div key={item.key} className={`flex items-center justify-between py-2 px-2.5 rounded-lg ${notifSettings.enabled ? 'hover:bg-slate-50' : 'opacity-40'}`}>
                               <div className="flex items-center gap-2.5">

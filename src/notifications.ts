@@ -10,6 +10,8 @@ export interface NotificationSettings {
   feedbackRequest: boolean;
   projectCreated: boolean;
   meetingCreated: boolean;
+  newUserJoined: boolean;
+  teamInvite: boolean;
 }
 
 const STORAGE_KEY = 'notification_settings';
@@ -25,6 +27,8 @@ export const defaultSettings: NotificationSettings = {
   feedbackRequest: true,
   projectCreated: true,
   meetingCreated: true,
+  newUserJoined: true,
+  teamInvite: true,
 };
 
 export function loadSettings(): NotificationSettings {
