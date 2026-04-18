@@ -332,6 +332,49 @@ exports.adminDeleteUser = onCall({ region: 'us-central1' }, async (request) => {
   return { success: true };
 });
 
+// ========== Callable: Set team folder config (Admin SDK bypasses rules) ==========
+const INITIAL_ADMIN_EMAIL = 'sjb76337447@gmail.com';
+
+async function verifyAdminCaller(request) {
+  if (!request.auth) throw new Error('unauthenticated');
+  const email = request.auth.token.email || '';
+  if (email === INITIAL_ADMIN_EMAIL) return;
+  const adminDoc = await db.collection('admins').doc(request.auth.uid).get();
+  if (!adminDoc.exists) throw new Error('permission-denied');
+}
+
+exports.setTeamFolderConfig = onCall({ region: 'us-central1' }, async (request) => {
+  await verifyAdminCaller(request);
+  const { folderId, folderName, folderUrl, teamId } = request.data;
+  if (!folderId) throw new Error('folderId is required');
+
+  if (teamId) {
+    // Per-team folder: update teams/{teamId}
+    await db.collection('teams').doc(teamId).update({ driveFolderId: folderId, driveFolderUrl: folderUrl || '' });
+  } else {
+    // Global shared folder: config/teamDriveFolder
+    await db.collection('config').doc('teamDriveFolder').set({
+      folderId,
+      folderName: folderName || '팀 공유 폴더',
+      folderUrl: folderUrl || '',
+      setBy: request.auth.token.email || 'admin',
+      setAt: Date.now(),
+    });
+  }
+  return { success: true };
+});
+
+exports.deleteTeamFolderConfig = onCall({ region: 'us-central1' }, async (request) => {
+  await verifyAdminCaller(request);
+  const { teamId } = request.data || {};
+  if (teamId) {
+    await db.collection('teams').doc(teamId).update({ driveFolderId: '', driveFolderUrl: '' });
+  } else {
+    await db.collection('config').doc('teamDriveFolder').delete();
+  }
+  return { success: true };
+});
+
 // ========== Callable: Sync all Firebase Auth users to Firestore ==========
 exports.syncAuthUsers = onCall({ region: 'us-central1' }, async (request) => {
   if (!request.auth) {

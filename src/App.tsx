@@ -2605,7 +2605,7 @@ export default function App() {
                         <button
                           onClick={async () => {
                             if (!confirm('팀 공유 폴더 설정을 삭제하시겠습니까?')) return;
-                            await deleteDoc(doc(db, 'config', 'teamDriveFolder'));
+                            await httpsCallable(functions, 'deleteTeamFolderConfig')({});
                           }}
                           className="text-red-400 hover:text-red-600"
                         >
@@ -2631,18 +2631,13 @@ export default function App() {
                           setIsSavingTeamFolder(true);
                           setTeamFolderSaveMsg(null);
                           try {
-                            await setDoc(doc(db, 'config', 'teamDriveFolder'), {
-                              folderId,
-                              folderName: '팀 공유 폴더',
-                              folderUrl: input.startsWith('http') ? input : `https://drive.google.com/drive/folders/${folderId}`,
-                              setBy: user?.displayName || 'Admin',
-                              setAt: Date.now(),
-                            });
+                            const fn = httpsCallable(functions, 'setTeamFolderConfig');
+                            await fn({ folderId, folderName: '팀 공유 폴더', folderUrl: input.startsWith('http') ? input : `https://drive.google.com/drive/folders/${folderId}` });
                             setTeamFolderUrlInput('');
                             setTeamFolderSaveMsg({ type: 'success', text: '폴더가 등록되었습니다!' });
                           } catch (e: any) {
                             console.error('Team folder save error:', e);
-                            setTeamFolderSaveMsg({ type: 'error', text: e?.code === 'permission-denied' ? '권한 없음 — 재로그인 후 시도하세요.' : `저장 실패: ${e?.message || '오류'}` });
+                            setTeamFolderSaveMsg({ type: 'error', text: `저장 실패: ${e?.message || '알 수 없는 오류'}` });
                           } finally {
                             setIsSavingTeamFolder(false);
                           }
@@ -3262,13 +3257,8 @@ export default function App() {
                         setIsSavingTeamFolder(true);
                         setTeamFolderSaveMsg(null);
                         try {
-                          await setDoc(doc(db, 'config', 'teamDriveFolder'), {
-                            folderId,
-                            folderName: '팀 공유 폴더',
-                            folderUrl: input.startsWith('http') ? input : `https://drive.google.com/drive/folders/${folderId}`,
-                            setBy: user?.displayName || 'Admin',
-                            setAt: Date.now(),
-                          });
+                          const fn = httpsCallable(functions, 'setTeamFolderConfig');
+                          await fn({ folderId, folderName: '팀 공유 폴더', folderUrl: input.startsWith('http') ? input : `https://drive.google.com/drive/folders/${folderId}` });
                           setTeamFolderUrlInput('');
                           setTeamFolderCurrentId(folderId);
                           setTeamFolderPath([{ id: folderId, name: '팀 공유 폴더' }]);
@@ -3276,9 +3266,7 @@ export default function App() {
                           setTimeout(() => loadTeamFolderFiles(folderId), 300);
                         } catch (e: any) {
                           console.error('Team folder save error:', e);
-                          if (e?.code === 'permission-denied') {
-                            setTeamFolderSaveMsg({ type: 'error', text: '저장 권한이 없습니다. 관리자 권한을 확인하거나 재로그인 후 시도하세요.' });
-                          } else {
+                          {
                             setTeamFolderSaveMsg({ type: 'error', text: `저장 실패: ${e?.message || '알 수 없는 오류'}` });
                           }
                         } finally {
