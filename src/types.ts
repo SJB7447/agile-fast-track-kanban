@@ -97,6 +97,8 @@ export interface Comment {
   authorName: string;
   authorPhotoURL: string | null;
   createdAt: number;
+  replyTo?: { id: string; text: string; authorName: string };
+  reactions?: Record<string, string[]>;
 }
 
 export interface Announcement {
