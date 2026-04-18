@@ -27,6 +27,7 @@ export interface Project {
   endDate: string;
   createdAt: number;
   createdBy: string;
+  memberUids?: string[];
 }
 
 export interface Meeting {

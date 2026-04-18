@@ -221,6 +221,8 @@ export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [showProjectModal, setShowProjectModal] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [projectSelectedUids, setProjectSelectedUids] = useState<string[]>([]);
+  const [projectMemberSearch, setProjectMemberSearch] = useState('');
 
   // Meetings State
   const [meetings, setMeetings] = useState<Meeting[]>([]);
@@ -988,14 +990,15 @@ export default function App() {
     }
   };
 
-  const saveProject = async (projectData: Omit<Project, 'id' | 'createdAt' | 'createdBy'>) => {
+  const saveProject = async (projectData: Omit<Project, 'id' | 'createdAt' | 'createdBy' | 'memberUids'>) => {
     if (!user) return;
     const isNew = !editingProject?.id;
+    const dataWithMembers = { ...projectData, memberUids: projectSelectedUids };
     if (editingProject?.id) {
-      await setDoc(doc(db, 'projects', editingProject.id), { ...editingProject, ...projectData });
+      await setDoc(doc(db, 'projects', editingProject.id), { ...editingProject, ...dataWithMembers });
     } else {
       const id = crypto.randomUUID();
-      await setDoc(doc(db, 'projects', id), { ...projectData, id, createdAt: Date.now(), createdBy: user.uid });
+      await setDoc(doc(db, 'projects', id), { ...dataWithMembers, id, createdAt: Date.now(), createdBy: user.uid });
     }
     if (isNew && notifSettingsRef.current.enabled) {
       notifyProjectCreated(projectData.title);
@@ -1003,6 +1006,7 @@ export default function App() {
     }
     setShowProjectModal(false);
     setEditingProject(null);
+    setProjectSelectedUids([]);
   };
 
   const deleteProject = async (id: string) => {
@@ -1012,6 +1016,8 @@ export default function App() {
 
   const openProjectModal = (project?: Project) => {
     setEditingProject(project || null);
+    setProjectSelectedUids(project?.memberUids || []);
+    setProjectMemberSearch('');
     setShowProjectModal(true);
   };
 
@@ -3352,6 +3358,24 @@ export default function App() {
                               </div>
                               <h4 className="text-lg font-bold text-slate-800 mt-1">{project.title}</h4>
                               {project.description && <p className="text-sm text-slate-500 mt-0.5 line-clamp-2">{project.description}</p>}
+                              {project.memberUids && project.memberUids.length > 0 && (
+                                <div className="flex items-center gap-1 mt-2">
+                                  <div className="flex -space-x-1.5">
+                                    {project.memberUids.slice(0, 5).map(uid => {
+                                      const u = allUsers.find(au => au.uid === uid);
+                                      return u ? (
+                                        u.photoURL
+                                          ? <img key={uid} src={u.photoURL} title={u.displayName || u.email} className="w-6 h-6 rounded-full border-2 border-white object-cover" />
+                                          : <span key={uid} title={u.displayName || u.email} className="w-6 h-6 rounded-full border-2 border-white bg-indigo-300 flex items-center justify-center text-[10px] text-white font-bold">{u.displayName?.[0]?.toUpperCase() || '?'}</span>
+                                      ) : null;
+                                    })}
+                                  </div>
+                                  {project.memberUids.length > 5 && (
+                                    <span className="text-xs text-slate-400">+{project.memberUids.length - 5}</span>
+                                  )}
+                                  <span className="text-xs text-slate-400 ml-0.5">{project.memberUids.length}명</span>
+                                </div>
+                              )}
                               <div className="mt-3 flex items-center gap-1">
                                 <div className="flex-1 bg-slate-100 rounded-full h-1.5">
                                   <div className="h-1.5 rounded-full bg-indigo-500 transition-all" style={{ width: `${progress}%` }} />
@@ -4414,7 +4438,7 @@ export default function App() {
                 <Folder className="w-5 h-5 text-indigo-500" />
                 {editingProject ? '프로젝트 수정' : '새 프로젝트'}
               </h3>
-              <button onClick={() => { setShowProjectModal(false); setEditingProject(null); }} className="text-slate-400 hover:text-slate-600">
+              <button onClick={() => { setShowProjectModal(false); setEditingProject(null); setProjectSelectedUids([]); setProjectMemberSearch(''); }} className="text-slate-400 hover:text-slate-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -4495,12 +4519,86 @@ export default function App() {
                     />
                   </div>
                 </div>
+
+                {/* Member selection */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-1.5">
+                    <Users className="w-4 h-4 text-indigo-400" /> 참여 멤버
+                    {projectSelectedUids.length > 0 && (
+                      <span className="ml-1 px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs rounded-full font-bold">{projectSelectedUids.length}</span>
+                    )}
+                  </label>
+                  {/* Selected member chips */}
+                  {projectSelectedUids.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {projectSelectedUids.map(uid => {
+                        const u = allUsers.find(au => au.uid === uid);
+                        return u ? (
+                          <span key={uid} className="flex items-center gap-1 px-2 py-0.5 bg-indigo-50 border border-indigo-200 rounded-full text-xs text-indigo-700 font-medium">
+                            {u.photoURL
+                              ? <img src={u.photoURL} className="w-4 h-4 rounded-full" />
+                              : <span className="w-4 h-4 rounded-full bg-indigo-300 flex items-center justify-center text-[9px] text-white font-bold">{u.displayName?.[0]?.toUpperCase() || '?'}</span>
+                            }
+                            {u.displayName || u.email}
+                            <button type="button" onClick={() => setProjectSelectedUids(p => p.filter(id => id !== uid))} className="ml-0.5 text-indigo-400 hover:text-red-500">
+                              <X className="w-3 h-3" />
+                            </button>
+                          </span>
+                        ) : null;
+                      })}
+                    </div>
+                  )}
+                  {/* Search box */}
+                  <input
+                    type="text"
+                    value={projectMemberSearch}
+                    onChange={e => setProjectMemberSearch(e.target.value)}
+                    placeholder="이름 또는 이메일로 검색..."
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm mb-1"
+                  />
+                  {/* User list */}
+                  <div className="max-h-36 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
+                    {allUsers
+                      .filter(u => {
+                        const q = projectMemberSearch.toLowerCase();
+                        return (u.displayName?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q));
+                      })
+                      .map(u => {
+                        const selected = projectSelectedUids.includes(u.uid);
+                        return (
+                          <button
+                            key={u.uid}
+                            type="button"
+                            onClick={() => setProjectSelectedUids(p => selected ? p.filter(id => id !== u.uid) : [...p, u.uid])}
+                            className={`w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-slate-50 transition-colors ${selected ? 'bg-indigo-50' : ''}`}
+                          >
+                            {u.photoURL
+                              ? <img src={u.photoURL} className="w-7 h-7 rounded-full shrink-0" />
+                              : <span className="w-7 h-7 rounded-full bg-indigo-200 flex items-center justify-center text-xs text-indigo-700 font-bold shrink-0">{u.displayName?.[0]?.toUpperCase() || '?'}</span>
+                            }
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-slate-800 truncate">{u.displayName || '이름 없음'}</p>
+                              <p className="text-xs text-slate-400 truncate">{u.email}</p>
+                            </div>
+                            {selected && <CheckCircle2 className="w-4 h-4 text-indigo-500 shrink-0" />}
+                          </button>
+                        );
+                      })
+                    }
+                    {allUsers.filter(u => {
+                      const q = projectMemberSearch.toLowerCase();
+                      return (u.displayName?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q));
+                    }).length === 0 && (
+                      <p className="text-center text-xs text-slate-400 py-3">검색 결과가 없습니다.</p>
+                    )}
+                  </div>
+                </div>
               </form>
             </div>
             <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
               <button
                 type="button"
-                onClick={() => { setShowProjectModal(false); setEditingProject(null); }}
+                onClick={() => { setShowProjectModal(false); setEditingProject(null); setProjectSelectedUids([]); setProjectMemberSearch(''); }}
                 className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
               >
                 취소
