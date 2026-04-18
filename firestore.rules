@@ -60,15 +60,19 @@ service cloud.firestore {
     }
 
     // ===============================================================
-    // Admins - admin manages other admins, authenticated read
+    // Admins
+    // - read: any authenticated user
+    // - create: existing admin OR self-registration (for initial admin bootstrap)
+    // - update/delete: existing admin only
     // ===============================================================
     match /admins/{uid} {
       allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow create: if isAuthenticated() && (isAdmin() || request.auth.uid == uid);
+      allow update, delete: if isAdmin();
     }
 
     // ===============================================================
-    // Admin invites - admin write, authenticated read own invite
+    // Admin invites - admin write, authenticated read
     // ===============================================================
     match /admin_invites/{email} {
       allow read: if isAuthenticated();
@@ -102,7 +106,7 @@ service cloud.firestore {
     }
 
     // ===============================================================
-    // User-Team mapping - user can read own, admin can write
+    // User-Team mapping
     // ===============================================================
     match /userTeams/{uid} {
       allow read: if isAuthenticated() && (request.auth.uid == uid || isAdmin());
@@ -125,6 +129,15 @@ service cloud.firestore {
       allow create: if isAuthenticated() && createdByMatchesAuth();
       allow delete: if isCreator() || isAdmin();
       allow update: if isAuthenticated() && immutableFieldsUnchanged();
+    }
+
+    // ===============================================================
+    // Users - profile written on login, admin reads all
+    // ===============================================================
+    match /users/{uid} {
+      allow read: if isAuthenticated() && (request.auth.uid == uid || isAdmin());
+      allow create, update: if isAuthenticated() && request.auth.uid == uid;
+      allow delete: if isAdmin();
     }
 
     // ===============================================================

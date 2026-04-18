@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { motion } from 'motion/react';
 import { useLanguage } from './i18n';
 import { DriveFile, getOrCreateAppFolder, listFiles, uploadFile, deleteFile, formatFileSize, getFileTypeIcon } from './driveService';
-import { Task, Status, Priority, Comment, CalendarEvent, AiResult, Announcement, Project, Meeting, ProjectStatus, Team, TeamMember } from './types';
+import { Task, Status, Priority, Comment, CalendarEvent, AiResult, Announcement, Project, Meeting, ProjectStatus, Team, TeamMember, UserProfile } from './types';
 import { manualContent, Language } from './manualContent';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, User } from 'firebase/auth';
@@ -149,6 +149,7 @@ export default function App() {
   const [firestoreError, setFirestoreError] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [adminList, setAdminList] = useState<{ uid: string; email: string; displayName: string }[]>([]);
+  const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [newAdminEmail, setNewAdminEmail] = useState('');
 
@@ -472,11 +473,33 @@ export default function App() {
 
   // Auth Listener
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       setIsAuthReady(true);
       checkAndSetAdmin(currentUser);
-      if (currentUser) checkAndAcceptTeamInvite(currentUser);
+      if (currentUser) {
+        checkAndAcceptTeamInvite(currentUser);
+        // Save/update user profile in users collection
+        const now = Date.now();
+        const profile: UserProfile = {
+          uid: currentUser.uid,
+          email: currentUser.email || '',
+          displayName: currentUser.displayName || currentUser.email || '알 수 없음',
+          photoURL: currentUser.photoURL,
+          lastLoginAt: now,
+          createdAt: now,
+        };
+        try {
+          const existing = await getDoc(doc(db, 'users', currentUser.uid));
+          if (existing.exists()) {
+            await setDoc(doc(db, 'users', currentUser.uid), { ...existing.data(), lastLoginAt: now, displayName: profile.displayName, photoURL: profile.photoURL });
+          } else {
+            await setDoc(doc(db, 'users', currentUser.uid), profile);
+          }
+        } catch (e) {
+          console.error('User profile save error:', e);
+        }
+      }
     });
     return () => unsubscribe();
   }, [checkAndSetAdmin]);
@@ -726,13 +749,16 @@ export default function App() {
     };
   }, [isAuthReady, user]);
 
-  // Admin-only teams listener
+  // Admin-only listeners
   useEffect(() => {
     if (!isAdmin || !user) return;
     const unsubscribeTeams = onSnapshot(query(collection(db, 'teams'), orderBy('createdAt', 'desc')), (snapshot) => {
       setTeams(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Team)));
     });
-    return () => unsubscribeTeams();
+    const unsubscribeUsers = onSnapshot(query(collection(db, 'users'), orderBy('lastLoginAt', 'desc')), (snapshot) => {
+      setAllUsers(snapshot.docs.map(d => ({ ...d.data() } as UserProfile)));
+    });
+    return () => { unsubscribeTeams(); unsubscribeUsers(); };
   }, [isAdmin, user]);
 
   // Firestore calendar events listener
@@ -770,6 +796,51 @@ export default function App() {
     const interval = setInterval(checkDueDates, 30 * 60 * 1000);
     return () => clearInterval(interval);
   }, [user, tasks]);
+
+  // Member management (admin only)
+  const grantAdmin = async (targetUser: UserProfile) => {
+    if (!confirm(`${targetUser.displayName}님에게 관리자 권한을 부여하시겠습니까?`)) return;
+    try {
+      await setDoc(doc(db, 'admins', targetUser.uid), {
+        email: targetUser.email,
+        displayName: targetUser.displayName,
+        createdAt: Date.now(),
+      });
+    } catch (e) {
+      console.error('관리자 권한 부여 실패:', e);
+      alert('관리자 권한 부여에 실패했습니다.');
+    }
+  };
+
+  const revokeAdmin = async (targetUid: string, targetName: string) => {
+    if (targetUid === user?.uid) { alert('본인의 관리자 권한은 해제할 수 없습니다.'); return; }
+    if (!confirm(`${targetName}님의 관리자 권한을 해제하시겠습니까?`)) return;
+    try {
+      await deleteDoc(doc(db, 'admins', targetUid));
+    } catch (e) {
+      console.error('관리자 권한 해제 실패:', e);
+      alert('관리자 권한 해제에 실패했습니다.');
+    }
+  };
+
+  const removeUserFromTeam = async (targetUid: string, targetName: string) => {
+    if (!confirm(`${targetName}님을 팀에서 제거하시겠습니까?`)) return;
+    try {
+      const userTeamDoc = await getDoc(doc(db, 'userTeams', targetUid));
+      if (!userTeamDoc.exists()) { alert('해당 사용자는 팀에 속해 있지 않습니다.'); return; }
+      const teamId = userTeamDoc.data().teamId;
+      const teamDoc = await getDoc(doc(db, 'teams', teamId));
+      if (teamDoc.exists()) {
+        const team = { id: teamDoc.id, ...teamDoc.data() } as Team;
+        const updatedMembers = team.members.filter(m => m.uid !== targetUid);
+        await setDoc(doc(db, 'teams', teamId), { ...team, members: updatedMembers });
+      }
+      await deleteDoc(doc(db, 'userTeams', targetUid));
+    } catch (e) {
+      console.error('팀 제거 실패:', e);
+      alert('팀 제거에 실패했습니다.');
+    }
+  };
 
   // Team CRUD (admin only)
   const saveTeam = async (teamData: { name: string; description: string }) => {
@@ -1025,6 +1096,7 @@ export default function App() {
       title: '관리자',
       items: [
         { id: 'teams', label: '팀 관리', icon: <Shield className="w-[18px] h-[18px]" /> },
+        { id: 'members', label: '가입자 관리', icon: <Users className="w-[18px] h-[18px]" /> },
       ]
     }] : []),
   ];
@@ -3710,8 +3782,118 @@ export default function App() {
             </div>
           )}
 
+          {/* Members Management (Admin Only) */}
+          {activeTab === 'members' && isAdmin && (
+            <div className="max-w-5xl mx-auto space-y-6">
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="p-6 border-b border-slate-200 flex justify-between items-center">
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                      <Users className="w-5 h-5 text-indigo-500" />
+                      가입자 관리
+                      <span className="text-xs font-semibold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <Lock className="w-3 h-3" /> 관리자 전용
+                      </span>
+                    </h3>
+                    <p className="text-sm text-slate-500 mt-1">앱에 로그인한 사용자 목록입니다. 총 {allUsers.length}명</p>
+                  </div>
+                </div>
+
+                {allUsers.length === 0 ? (
+                  <div className="p-16 text-center">
+                    <Users className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                    <p className="font-medium text-slate-600">가입자가 없습니다.</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-100">
+                    {allUsers.map(u => {
+                      const isAdminUser = adminList.some(a => a.uid === u.uid);
+                      const userTeamInfo = (() => {
+                        for (const team of teams) {
+                          const member = team.members.find(m => m.uid === u.uid);
+                          if (member) return { teamName: team.name, teamId: team.id, role: member.role };
+                        }
+                        return null;
+                      })();
+                      const isSelf = u.uid === user?.uid;
+
+                      return (
+                        <div key={u.uid} className="px-6 py-4 flex items-center gap-4 hover:bg-slate-50 transition-colors group">
+                          {/* Avatar */}
+                          <img
+                            src={u.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(u.displayName)}&background=e0e7ff&color=4338ca`}
+                            alt={u.displayName}
+                            className="w-10 h-10 rounded-full ring-2 ring-white shadow-sm shrink-0"
+                          />
+                          {/* Info */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-sm font-semibold text-slate-800">{u.displayName}</p>
+                              {isSelf && <span className="text-[10px] font-bold bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full">나</span>}
+                              {isAdminUser && (
+                                <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                                  <Shield className="w-2.5 h-2.5" /> 관리자
+                                </span>
+                              )}
+                              {userTeamInfo && (
+                                <span className="text-[10px] font-medium bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                                  <Crown className="w-2.5 h-2.5" />
+                                  {userTeamInfo.teamName} {userTeamInfo.role === 'lead' ? '· 리더' : ''}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-slate-400 truncate">{u.email}</p>
+                            <p className="text-xs text-slate-400 mt-0.5">
+                              마지막 로그인: {new Date(u.lastLoginAt).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          </div>
+                          {/* Actions */}
+                          <div className="flex items-center gap-1.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {!isAdminUser ? (
+                              <button
+                                onClick={() => grantAdmin(u)}
+                                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors"
+                                title="관리자 권한 부여"
+                              >
+                                <Shield className="w-3.5 h-3.5" /> 관리자 지정
+                              </button>
+                            ) : !isSelf && (
+                              <button
+                                onClick={() => revokeAdmin(u.uid, u.displayName)}
+                                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-600 bg-slate-100 border border-slate-200 rounded-lg hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
+                                title="관리자 권한 해제"
+                              >
+                                <Shield className="w-3.5 h-3.5" /> 권한 해제
+                              </button>
+                            )}
+                            {userTeamInfo && (
+                              <button
+                                onClick={() => removeUserFromTeam(u.uid, u.displayName)}
+                                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors"
+                                title="팀에서 제거"
+                              >
+                                <UserMinus className="w-3.5 h-3.5" /> 팀 제거
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'members' && !isAdmin && (
+            <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
+              <Lock className="w-16 h-16 text-slate-300 mb-4" />
+              <p className="text-slate-600 font-semibold">관리자만 접근할 수 있습니다.</p>
+            </div>
+          )}
+
           {/* Coming Soon state for non-implemented paths */}
-          {!['announcements', 'board', 'sync', 'issues', 'calendar', 'docs', 'deadline', 'comments', 'meetings', 'projects', 'risks', 'assignees', 'review_req', 'revision_req', 'pending_appr', 'completion_log', 'ai_meeting', 'ai_action', 'ai_weekly', 'ai_delay', 'ai_blocker', 'teams'].includes(activeTab) && !currentManualKey && (
+          {!['announcements', 'board', 'sync', 'issues', 'calendar', 'docs', 'deadline', 'comments', 'meetings', 'projects', 'risks', 'assignees', 'review_req', 'revision_req', 'pending_appr', 'completion_log', 'ai_meeting', 'ai_action', 'ai_weekly', 'ai_delay', 'ai_blocker', 'teams', 'members'].includes(activeTab) && !currentManualKey && (
             <div className="flex flex-col items-center justify-center min-h-[60vh] text-center opacity-0 animate-[fadeIn_0.5s_ease-out_forwards]">
               <div className="w-24 h-24 mb-6 relative">
                  <div className="absolute inset-0 bg-indigo-100 rounded-full animate-ping opacity-60 duration-1000"></div>
