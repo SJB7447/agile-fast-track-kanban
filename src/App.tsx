@@ -313,6 +313,8 @@ export default function App() {
   const [teamFolderCurrentId, setTeamFolderCurrentId] = useState('');
   const [teamFolderUrlInput, setTeamFolderUrlInput] = useState('');
   const [isTeamFolderUploading, setIsTeamFolderUploading] = useState(false);
+  const [isSavingTeamFolder, setIsSavingTeamFolder] = useState(false);
+  const [teamFolderSaveMsg, setTeamFolderSaveMsg] = useState<{type: 'success'|'error'; text: string} | null>(null);
   const [isDragOverTeam, setIsDragOverTeam] = useState(false);
   const [teamFolderError, setTeamFolderError] = useState<string | null>(null);
   const teamFolderFileInputRef = useRef<HTMLInputElement>(null);
@@ -2465,30 +2467,48 @@ export default function App() {
                       <input
                         type="text"
                         value={teamFolderUrlInput}
-                        onChange={e => setTeamFolderUrlInput(e.target.value)}
+                        onChange={e => { setTeamFolderUrlInput(e.target.value); setTeamFolderSaveMsg(null); }}
                         placeholder="Google Drive 폴더 URL 또는 폴더 ID"
                         className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                       />
                       <button
+                        disabled={isSavingTeamFolder}
                         onClick={async () => {
                           const input = teamFolderUrlInput.trim();
                           if (!input) return;
                           const folderId = extractFolderIdFromUrl(input);
-                          if (!folderId) { alert('올바른 Google Drive 폴더 URL이 아닙니다.'); return; }
-                          await setDoc(doc(db, 'config', 'teamDriveFolder'), {
-                            folderId,
-                            folderName: '팀 공유 폴더',
-                            folderUrl: input.startsWith('http') ? input : `https://drive.google.com/drive/folders/${folderId}`,
-                            setBy: user?.displayName || 'Admin',
-                            setAt: Date.now(),
-                          });
-                          setTeamFolderUrlInput('');
+                          if (!folderId) { setTeamFolderSaveMsg({ type: 'error', text: '올바른 Google Drive 폴더 URL이 아닙니다.' }); return; }
+                          setIsSavingTeamFolder(true);
+                          setTeamFolderSaveMsg(null);
+                          try {
+                            await setDoc(doc(db, 'config', 'teamDriveFolder'), {
+                              folderId,
+                              folderName: '팀 공유 폴더',
+                              folderUrl: input.startsWith('http') ? input : `https://drive.google.com/drive/folders/${folderId}`,
+                              setBy: user?.displayName || 'Admin',
+                              setAt: Date.now(),
+                            });
+                            setTeamFolderUrlInput('');
+                            setTeamFolderSaveMsg({ type: 'success', text: '폴더가 등록되었습니다!' });
+                          } catch (e: any) {
+                            console.error('Team folder save error:', e);
+                            setTeamFolderSaveMsg({ type: 'error', text: e?.code === 'permission-denied' ? '권한 없음 — 재로그인 후 시도하세요.' : `저장 실패: ${e?.message || '오류'}` });
+                          } finally {
+                            setIsSavingTeamFolder(false);
+                          }
                         }}
-                        className="px-4 py-2 bg-indigo-500 text-white rounded-lg text-sm font-medium hover:bg-indigo-600 transition-colors whitespace-nowrap"
+                        className="px-4 py-2 bg-indigo-500 text-white rounded-lg text-sm font-medium hover:bg-indigo-600 disabled:opacity-60 transition-colors whitespace-nowrap flex items-center gap-1.5"
                       >
-                        폴더 등록
+                        {isSavingTeamFolder && <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                        {isSavingTeamFolder ? '등록 중...' : '폴더 등록'}
                       </button>
                     </div>
+                    {teamFolderSaveMsg && (
+                      <div className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg ${teamFolderSaveMsg.type === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+                        {teamFolderSaveMsg.type === 'success' ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> : <AlertCircle className="w-3.5 h-3.5 shrink-0" />}
+                        {teamFolderSaveMsg.text}
+                      </div>
+                    )}
                     <p className="text-[11px] text-slate-400">Google Drive에서 폴더를 열고 주소창 URL을 붙여넣으세요. 해당 폴더가 팀원들과 공유되어 있어야 파일 목록이 표시됩니다.</p>
                   </div>
                 </motion.div>
@@ -3077,33 +3097,56 @@ export default function App() {
                     <input
                       type="text"
                       value={teamFolderUrlInput}
-                      onChange={e => setTeamFolderUrlInput(e.target.value)}
+                      onChange={e => { setTeamFolderUrlInput(e.target.value); setTeamFolderSaveMsg(null); }}
                       placeholder="https://drive.google.com/drive/folders/..."
                       className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      onKeyDown={e => e.key === 'Enter' && (e.target as HTMLInputElement).form?.requestSubmit()}
                     />
                     <button
+                      disabled={isSavingTeamFolder}
                       onClick={async () => {
                         const input = teamFolderUrlInput.trim();
-                        if (!input) return;
+                        if (!input) { setTeamFolderSaveMsg({ type: 'error', text: 'URL을 입력해주세요.' }); return; }
                         const folderId = extractFolderIdFromUrl(input);
-                        if (!folderId) { alert('올바른 Google Drive 폴더 URL이 아닙니다.'); return; }
-                        await setDoc(doc(db, 'config', 'teamDriveFolder'), {
-                          folderId,
-                          folderName: '팀 공유 폴더',
-                          folderUrl: input.startsWith('http') ? input : `https://drive.google.com/drive/folders/${folderId}`,
-                          setBy: user?.displayName || 'Admin',
-                          setAt: Date.now(),
-                        });
-                        setTeamFolderUrlInput('');
-                        setTeamFolderCurrentId(folderId);
-                        setTeamFolderPath([{ id: folderId, name: '팀 공유 폴더' }]);
-                        setTimeout(() => loadTeamFolderFiles(folderId), 300);
+                        if (!folderId) { setTeamFolderSaveMsg({ type: 'error', text: '올바른 Google Drive 폴더 URL이 아닙니다.' }); return; }
+                        setIsSavingTeamFolder(true);
+                        setTeamFolderSaveMsg(null);
+                        try {
+                          await setDoc(doc(db, 'config', 'teamDriveFolder'), {
+                            folderId,
+                            folderName: '팀 공유 폴더',
+                            folderUrl: input.startsWith('http') ? input : `https://drive.google.com/drive/folders/${folderId}`,
+                            setBy: user?.displayName || 'Admin',
+                            setAt: Date.now(),
+                          });
+                          setTeamFolderUrlInput('');
+                          setTeamFolderCurrentId(folderId);
+                          setTeamFolderPath([{ id: folderId, name: '팀 공유 폴더' }]);
+                          setTeamFolderSaveMsg({ type: 'success', text: '폴더가 등록되었습니다!' });
+                          setTimeout(() => loadTeamFolderFiles(folderId), 300);
+                        } catch (e: any) {
+                          console.error('Team folder save error:', e);
+                          if (e?.code === 'permission-denied') {
+                            setTeamFolderSaveMsg({ type: 'error', text: '저장 권한이 없습니다. 관리자 권한을 확인하거나 재로그인 후 시도하세요.' });
+                          } else {
+                            setTeamFolderSaveMsg({ type: 'error', text: `저장 실패: ${e?.message || '알 수 없는 오류'}` });
+                          }
+                        } finally {
+                          setIsSavingTeamFolder(false);
+                        }
                       }}
-                      className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors whitespace-nowrap"
+                      className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors whitespace-nowrap flex items-center gap-1.5"
                     >
-                      폴더 등록
+                      {isSavingTeamFolder && <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                      {isSavingTeamFolder ? '등록 중...' : '폴더 등록'}
                     </button>
                   </div>
+                  {teamFolderSaveMsg && (
+                    <div className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg ${teamFolderSaveMsg.type === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+                      {teamFolderSaveMsg.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
+                      {teamFolderSaveMsg.text}
+                    </div>
+                  )}
                   <p className="text-xs text-slate-400">등록 후 팀원들이 해당 Google 계정과 공유된 경우 앱 내에서 파일 목록을 볼 수 있습니다.</p>
                 </div>
               ) : (
