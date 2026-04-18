@@ -1,7 +1,10 @@
 const { onDocumentCreated, onDocumentUpdated } = require('firebase-functions/v2/firestore');
+const { onCall } = require('firebase-functions/v2/https');
+const { auth } = require('firebase-functions');
 const { initializeApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 const { getMessaging } = require('firebase-admin/messaging');
+const { getAuth } = require('firebase-admin/auth');
 
 initializeApp();
 
@@ -177,3 +180,62 @@ exports.onCommentCreated = onDocumentCreated(
     );
   }
 );
+
+// ========== Auth: Auto-save user profile on sign-up ==========
+exports.onUserCreated = auth.user().onCreate(async (user) => {
+  const now = Date.now();
+  await db.collection('users').doc(user.uid).set({
+    uid: user.uid,
+    email: user.email || '',
+    displayName: user.displayName || user.email || '알 수 없음',
+    photoURL: user.photoURL || null,
+    lastLoginAt: now,
+    createdAt: now,
+  });
+});
+
+// ========== Auth: Clean up user data on delete ==========
+exports.onUserDeleted = auth.user().onDelete(async (user) => {
+  await db.collection('users').doc(user.uid).delete().catch(() => {});
+});
+
+// ========== Callable: Sync all Firebase Auth users to Firestore ==========
+exports.syncAuthUsers = onCall({ region: 'us-central1' }, async (request) => {
+  if (!request.auth) {
+    throw new Error('unauthenticated');
+  }
+  // Verify caller is admin
+  const adminDoc = await db.collection('admins').doc(request.auth.uid).get();
+  if (!adminDoc.exists) {
+    throw new Error('permission-denied');
+  }
+
+  const authInstance = getAuth();
+  let pageToken;
+  let count = 0;
+
+  do {
+    const result = await authInstance.listUsers(1000, pageToken);
+    const batch = db.batch();
+    result.users.forEach((user) => {
+      const ref = db.collection('users').doc(user.uid);
+      batch.set(ref, {
+        uid: user.uid,
+        email: user.email || '',
+        displayName: user.displayName || user.email || '알 수 없음',
+        photoURL: user.photoURL || null,
+        lastLoginAt: user.metadata.lastSignInTime
+          ? new Date(user.metadata.lastSignInTime).getTime()
+          : Date.now(),
+        createdAt: user.metadata.creationTime
+          ? new Date(user.metadata.creationTime).getTime()
+          : Date.now(),
+      }, { merge: true });
+      count++;
+    });
+    await batch.commit();
+    pageToken = result.pageToken;
+  } while (pageToken);
+
+  return { synced: count };
+});

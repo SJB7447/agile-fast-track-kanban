@@ -7,6 +7,7 @@ import { manualContent, Language } from './manualContent';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, User } from 'firebase/auth';
 import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, query, orderBy, limit, addDoc, getDocs, getDoc } from 'firebase/firestore';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { initFCM, onForegroundMessage, removeFCMToken } from './fcm';
 import {
@@ -96,6 +97,7 @@ import {
   UserPlus,
   Lock,
   Globe,
+  RefreshCw,
 } from 'lucide-react';
 
 // Firebase config from environment variables
@@ -127,6 +129,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app, import.meta.env.VITE_FIRESTORE_DATABASE_ID || '');
 const auth = getAuth();
+const functions = getFunctions(app);
 
 const COLUMNS: Status[] = ['To Do', 'In Progress', 'Blocked', 'Done'];
 const PRIORITIES: Priority[] = ['High', 'Medium', 'Low'];
@@ -839,6 +842,17 @@ export default function App() {
     } catch (e) {
       console.error('팀 제거 실패:', e);
       alert('팀 제거에 실패했습니다.');
+    }
+  };
+
+  const syncAuthUsers = async () => {
+    try {
+      const fn = httpsCallable(functions, 'syncAuthUsers');
+      const result = await fn({}) as { data: { synced: number } };
+      alert(`동기화 완료: ${result.data.synced}명의 사용자가 동기화되었습니다.`);
+    } catch (e) {
+      console.error('동기화 실패:', e);
+      alert('동기화에 실패했습니다. 잠시 후 다시 시도하세요.');
     }
   };
 
@@ -3795,14 +3809,22 @@ export default function App() {
                         <Lock className="w-3 h-3" /> 관리자 전용
                       </span>
                     </h3>
-                    <p className="text-sm text-slate-500 mt-1">앱에 로그인한 사용자 목록입니다. 총 {allUsers.length}명</p>
+                    <p className="text-sm text-slate-500 mt-1">Firebase Auth 기준 전체 가입자입니다. 총 {allUsers.length}명</p>
                   </div>
+                  <button
+                    onClick={syncAuthUsers}
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-lg text-sm font-semibold hover:bg-indigo-100 transition-colors border border-indigo-200"
+                    title="Firebase Auth 사용자를 Firestore와 동기화합니다"
+                  >
+                    <RefreshCw className="w-4 h-4" /> Auth 동기화
+                  </button>
                 </div>
 
                 {allUsers.length === 0 ? (
                   <div className="p-16 text-center">
                     <Users className="w-12 h-12 text-slate-300 mx-auto mb-3" />
                     <p className="font-medium text-slate-600">가입자가 없습니다.</p>
+                    <p className="text-sm text-slate-400 mt-2">'Auth 동기화' 버튼을 눌러 Firebase 가입자를 불러오세요.</p>
                   </div>
                 ) : (
                   <div className="divide-y divide-slate-100">
