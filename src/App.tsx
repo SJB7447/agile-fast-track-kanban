@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion } from 'motion/react';
 import { useLanguage } from './i18n';
-import { DriveFile, getOrCreateAppFolder, listFiles, uploadFile, deleteFile, formatFileSize, getFileTypeIcon } from './driveService';
+import { DriveFile, getOrCreateAppFolder, listFiles, uploadFile, deleteFile, formatFileSize, getFileTypeIcon, extractFolderIdFromUrl } from './driveService';
 import { Task, Status, Priority, Comment, CalendarEvent, AiResult, Announcement, Project, Meeting, ProjectStatus, Team, TeamMember, UserProfile } from './types';
 import { manualContent, Language } from './manualContent';
 import { initializeApp } from 'firebase/app';
@@ -304,6 +304,18 @@ export default function App() {
   const [isUploading, setIsUploading] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Team Shared Drive Folder State
+  const [teamFolderConfig, setTeamFolderConfig] = useState<{folderId: string; folderName: string; folderUrl: string; setBy: string; setAt: number} | null>(null);
+  const [teamFolderFiles, setTeamFolderFiles] = useState<DriveFile[]>([]);
+  const [teamFolderLoading, setTeamFolderLoading] = useState(false);
+  const [teamFolderPath, setTeamFolderPath] = useState<{id: string; name: string}[]>([]);
+  const [teamFolderCurrentId, setTeamFolderCurrentId] = useState('');
+  const [teamFolderUrlInput, setTeamFolderUrlInput] = useState('');
+  const [isTeamFolderUploading, setIsTeamFolderUploading] = useState(false);
+  const [isDragOverTeam, setIsDragOverTeam] = useState(false);
+  const [teamFolderError, setTeamFolderError] = useState<string | null>(null);
+  const teamFolderFileInputRef = useRef<HTMLInputElement>(null);
 
   // Notification Settings State
   const [notifSettings, setNotifSettings] = useState<NotificationSettings>(loadNotifSettings);
@@ -1230,10 +1242,103 @@ export default function App() {
     }
   }, [googleAccessToken, driveFolderId]);
 
+  // Load team folder config from Firestore
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'config', 'teamDriveFolder'), snap => {
+      if (snap.exists()) {
+        const data = snap.data() as {folderId: string; folderName: string; folderUrl: string; setBy: string; setAt: number};
+        setTeamFolderConfig(data);
+        setTeamFolderCurrentId(data.folderId);
+        setTeamFolderPath([{ id: data.folderId, name: data.folderName }]);
+      } else {
+        setTeamFolderConfig(null);
+        setTeamFolderCurrentId('');
+        setTeamFolderPath([]);
+      }
+    });
+    return unsub;
+  }, []);
+
+  // Team folder file loading
+  const loadTeamFolderFiles = useCallback(async (folderId?: string) => {
+    const targetId = folderId || teamFolderCurrentId;
+    if (!googleAccessToken || !targetId) return;
+    setTeamFolderLoading(true);
+    setTeamFolderError(null);
+    try {
+      const files = await listFiles(googleAccessToken, targetId);
+      setTeamFolderFiles(files);
+    } catch (e: any) {
+      if (e.message === 'TOKEN_EXPIRED') {
+        setGoogleAccessToken(null);
+      } else {
+        setTeamFolderError('폴더를 불러오지 못했습니다. 폴더가 공유되어 있는지 확인하세요.');
+      }
+    } finally {
+      setTeamFolderLoading(false);
+    }
+  }, [googleAccessToken, teamFolderCurrentId]);
+
+  const enterTeamSubfolder = async (folder: DriveFile) => {
+    setTeamFolderPath(prev => [...prev, { id: folder.id, name: folder.name }]);
+    setTeamFolderCurrentId(folder.id);
+    setTeamFolderFiles([]);
+    setTeamFolderLoading(true);
+    setTeamFolderError(null);
+    try {
+      const files = await listFiles(googleAccessToken!, folder.id);
+      setTeamFolderFiles(files);
+    } catch (e: any) {
+      if (e.message === 'TOKEN_EXPIRED') setGoogleAccessToken(null);
+      else setTeamFolderError('폴더를 불러오지 못했습니다.');
+    } finally {
+      setTeamFolderLoading(false);
+    }
+  };
+
+  const navigateTeamBreadcrumb = async (index: number) => {
+    const target = teamFolderPath[index];
+    setTeamFolderPath(prev => prev.slice(0, index + 1));
+    setTeamFolderCurrentId(target.id);
+    setTeamFolderFiles([]);
+    await loadTeamFolderFiles(target.id);
+  };
+
+  const handleTeamFolderUpload = async (files: FileList | null) => {
+    if (!files || !googleAccessToken || !teamFolderCurrentId) return;
+    setIsTeamFolderUploading(true);
+    try {
+      for (const file of Array.from(files)) {
+        if (file.size > 25 * 1024 * 1024) { alert(`${file.name}: 25MB 이하 파일만 업로드 가능합니다.`); continue; }
+        await uploadFile(googleAccessToken, teamFolderCurrentId, file);
+      }
+      await loadTeamFolderFiles();
+    } catch (e: any) {
+      if (e.message === 'TOKEN_EXPIRED') setGoogleAccessToken(null);
+      else alert('업로드 실패: ' + e.message);
+    } finally {
+      setIsTeamFolderUploading(false);
+    }
+  };
+
+  const handleTeamFolderDelete = async (fileId: string, fileName: string) => {
+    if (!googleAccessToken) return;
+    if (!confirm(`"${fileName}"을(를) 삭제하시겠습니까?`)) return;
+    try {
+      await deleteFile(googleAccessToken, fileId);
+      setTeamFolderFiles(prev => prev.filter(f => f.id !== fileId));
+    } catch (e: any) {
+      if (e.message === 'TOKEN_EXPIRED') setGoogleAccessToken(null);
+      else alert('삭제 실패');
+    }
+  };
+
   useEffect(() => {
     if (activeTab === 'docs' && googleAccessToken) {
       loadDriveFiles();
+      if (teamFolderCurrentId) loadTeamFolderFiles();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, googleAccessToken, loadDriveFiles]);
 
   const handleFileUpload = async (files: FileList | null) => {
@@ -1293,7 +1398,7 @@ export default function App() {
   const handleLogin = async () => {
     try {
       const provider = new GoogleAuthProvider();
-      provider.addScope('https://www.googleapis.com/auth/drive.file');
+      provider.addScope('https://www.googleapis.com/auth/drive');
       const result = await signInWithPopup(auth, provider);
       const credential = GoogleAuthProvider.credentialFromResult(result);
       if (credential?.accessToken) {
@@ -2322,6 +2427,60 @@ export default function App() {
                     </button>
                   </div>
                   <p className="text-[11px] text-slate-400">{t('admin.inviteDesc')}</p>
+
+                  {/* Team Shared Drive Folder Config */}
+                  <div className="border-t border-slate-100 pt-4 space-y-3">
+                    <h5 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                      <Folder className="w-4 h-4 text-indigo-400" />
+                      팀 공유 Drive 폴더 설정
+                    </h5>
+                    {teamFolderConfig && (
+                      <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 rounded-lg text-sm">
+                        <span className="text-indigo-700 font-medium flex-1 truncate">📁 {teamFolderConfig.folderName}</span>
+                        <a href={teamFolderConfig.folderUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-500 hover:text-indigo-700">
+                          <ExternalLink className="w-4 h-4" />
+                        </a>
+                        <button
+                          onClick={async () => {
+                            if (!confirm('팀 공유 폴더 설정을 삭제하시겠습니까?')) return;
+                            await deleteDoc(doc(db, 'config', 'teamDriveFolder'));
+                          }}
+                          className="text-red-400 hover:text-red-600"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={teamFolderUrlInput}
+                        onChange={e => setTeamFolderUrlInput(e.target.value)}
+                        placeholder="Google Drive 폴더 URL 또는 폴더 ID"
+                        className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                      <button
+                        onClick={async () => {
+                          const input = teamFolderUrlInput.trim();
+                          if (!input) return;
+                          const folderId = extractFolderIdFromUrl(input);
+                          if (!folderId) { alert('올바른 Google Drive 폴더 URL이 아닙니다.'); return; }
+                          await setDoc(doc(db, 'config', 'teamDriveFolder'), {
+                            folderId,
+                            folderName: '팀 공유 폴더',
+                            folderUrl: input.startsWith('http') ? input : `https://drive.google.com/drive/folders/${folderId}`,
+                            setBy: user?.displayName || 'Admin',
+                            setAt: Date.now(),
+                          });
+                          setTeamFolderUrlInput('');
+                        }}
+                        className="px-4 py-2 bg-indigo-500 text-white rounded-lg text-sm font-medium hover:bg-indigo-600 transition-colors whitespace-nowrap"
+                      >
+                        폴더 등록
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-slate-400">Google Drive에서 폴더를 열고 주소창 URL을 붙여넣으세요. 해당 폴더가 팀원들과 공유되어 있어야 파일 목록이 표시됩니다.</p>
+                  </div>
                 </motion.div>
               )}
 
@@ -2733,6 +2892,176 @@ export default function App() {
           {/* Google Drive - 문서 바로가기 */}
           {activeTab === 'docs' && (
             <div className="max-w-5xl mx-auto space-y-6">
+              {/* Team Shared Drive Folder Section */}
+              {teamFolderConfig ? (
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                  <div className="p-4 border-b border-slate-200 bg-slate-50/80 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Folder className="w-5 h-5 text-indigo-500" />
+                      <div>
+                        <h3 className="font-semibold text-slate-800">팀 공유 폴더</h3>
+                        {/* Breadcrumb */}
+                        <div className="flex items-center gap-1 text-xs text-slate-500 mt-0.5 flex-wrap">
+                          {teamFolderPath.map((crumb, i) => (
+                            <span key={crumb.id} className="flex items-center gap-1">
+                              {i > 0 && <ChevronRight className="w-3 h-3" />}
+                              <button
+                                onClick={() => i < teamFolderPath.length - 1 ? navigateTeamBreadcrumb(i) : undefined}
+                                className={i < teamFolderPath.length - 1 ? 'text-indigo-500 hover:underline' : 'text-slate-700 font-medium'}
+                              >
+                                {crumb.name}
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => loadTeamFolderFiles()}
+                        className="text-sm text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-1 transition-colors"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" /> 새로고침
+                      </button>
+                      <a
+                        href={teamFolderConfig.folderUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" /> Drive에서 열기
+                      </a>
+                    </div>
+                  </div>
+
+                  {/* Team folder upload (로그인된 경우만) */}
+                  {googleAccessToken && (
+                    <div
+                      onDragOver={(e) => { e.preventDefault(); setIsDragOverTeam(true); }}
+                      onDragLeave={() => setIsDragOverTeam(false)}
+                      onDrop={(e) => { e.preventDefault(); setIsDragOverTeam(false); handleTeamFolderUpload(e.dataTransfer.files); }}
+                      onClick={() => teamFolderFileInputRef.current?.click()}
+                      className={`mx-4 mt-4 rounded-xl border-2 border-dashed p-5 text-center cursor-pointer transition-all hover:border-indigo-300 hover:bg-indigo-50/30 ${isDragOverTeam ? 'border-indigo-500 bg-indigo-50/50' : 'border-slate-200'}`}
+                    >
+                      <input ref={teamFolderFileInputRef} type="file" multiple className="hidden" onChange={e => handleTeamFolderUpload(e.target.files)} />
+                      <div className="flex items-center justify-center gap-2">
+                        {isTeamFolderUploading ? (
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-indigo-600" />
+                        ) : (
+                          <Plus className="w-4 h-4 text-indigo-500" />
+                        )}
+                        <p className="text-sm font-medium text-slate-600">{isTeamFolderUploading ? '업로드 중...' : '파일 업로드 (드래그 or 클릭)'}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* File list */}
+                  {!googleAccessToken ? (
+                    <div className="p-8 text-center text-slate-400">
+                      <Lock className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                      <p className="text-sm font-medium">Google 로그인 후 파일 목록을 불러올 수 있습니다.</p>
+                      <p className="text-xs mt-1">폴더 바로가기는 우측 상단 "Drive에서 열기"를 사용하세요.</p>
+                    </div>
+                  ) : teamFolderLoading ? (
+                    <div className="p-10 flex justify-center">
+                      <div className="animate-spin rounded-full h-7 w-7 border-b-2 border-indigo-600" />
+                    </div>
+                  ) : teamFolderError ? (
+                    <div className="p-8 text-center">
+                      <AlertCircle className="w-10 h-10 mx-auto mb-2 text-amber-400" />
+                      <p className="text-sm font-medium text-slate-600">{teamFolderError}</p>
+                      <p className="text-xs text-slate-400 mt-1">폴더가 내 Google 계정과 공유되어 있는지 확인하세요.</p>
+                      <button onClick={() => loadTeamFolderFiles()} className="mt-3 text-sm text-indigo-600 hover:underline">다시 시도</button>
+                    </div>
+                  ) : teamFolderFiles.length === 0 ? (
+                    <div className="p-8 text-center text-slate-400">
+                      <Folder className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                      <p className="text-sm font-medium">폴더가 비어 있습니다.</p>
+                      <button onClick={() => loadTeamFolderFiles()} className="mt-2 text-xs text-indigo-500 hover:underline">불러오기</button>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-slate-100 mt-1 mb-2">
+                      {teamFolderFiles.map(file => {
+                        const isFolder = file.mimeType.includes('folder');
+                        return (
+                          <div
+                            key={file.id}
+                            className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50 transition-colors group"
+                          >
+                            <span className="text-xl w-8 text-center shrink-0 cursor-pointer" onClick={() => isFolder ? enterTeamSubfolder(file) : undefined}>
+                              {getFileTypeIcon(file.mimeType)}
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              {isFolder ? (
+                                <button
+                                  onClick={() => enterTeamSubfolder(file)}
+                                  className="text-sm font-medium text-indigo-700 hover:text-indigo-900 hover:underline truncate block text-left w-full"
+                                >
+                                  {file.name}
+                                </button>
+                              ) : (
+                                <a
+                                  href={file.webViewLink || '#'}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-sm font-medium text-slate-800 hover:text-indigo-600 truncate block transition-colors"
+                                >
+                                  {file.name}
+                                </a>
+                              )}
+                              <div className="flex items-center gap-3 text-xs text-slate-400 mt-0.5">
+                                {!isFolder && <span>{formatFileSize(file.size)}</span>}
+                                <span>{new Date(file.modifiedTime).toLocaleDateString('ko-KR', { year: 'numeric', month: 'short', day: 'numeric' })}</span>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                              {!isFolder && file.webViewLink && (
+                                <a
+                                  href={file.webViewLink}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="p-1.5 rounded-md hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 transition-colors"
+                                  title="Drive에서 열기"
+                                >
+                                  <ExternalLink className="w-4 h-4" />
+                                </a>
+                              )}
+                              <button
+                                onClick={() => handleTeamFolderDelete(file.id, file.name)}
+                                className="p-1.5 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors"
+                                title="삭제"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ) : isAdmin ? (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+                  <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-amber-800">팀 공유 폴더가 설정되지 않았습니다.</p>
+                    <p className="text-xs text-amber-600 mt-0.5">관리자 패널에서 Google Drive 공유 폴더를 등록하세요.</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex items-start gap-3">
+                  <Folder className="w-5 h-5 text-slate-400 shrink-0 mt-0.5" />
+                  <p className="text-sm text-slate-500">팀 공유 폴더가 아직 설정되지 않았습니다. 관리자에게 문의하세요.</p>
+                </div>
+              )}
+
+              {/* Divider */}
+              <div className="flex items-center gap-3 my-2">
+                <div className="flex-1 h-px bg-slate-200" />
+                <span className="text-xs text-slate-400 font-medium">내 개인 폴더</span>
+                <div className="flex-1 h-px bg-slate-200" />
+              </div>
+
               {!googleAccessToken ? (
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-12 text-center">
                   <div className="w-16 h-16 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-4">

@@ -104,6 +104,53 @@ export async function deleteFile(token: string, fileId: string): Promise<void> {
   if (!res.ok && res.status !== 204) throw new Error(`Delete Error: ${res.status}`);
 }
 
+/** Create a subfolder inside a parent folder */
+export async function createDriveFolder(token: string, name: string, parentId: string): Promise<DriveFile> {
+  const folder = await driveRequest(`${DRIVE_API}/files?fields=id,name,mimeType,modifiedTime,webViewLink`, token, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name,
+      mimeType: 'application/vnd.google-apps.folder',
+      parents: [parentId],
+    }),
+  });
+  return folder;
+}
+
+/** Rename a file or folder */
+export async function renameFile(token: string, fileId: string, newName: string): Promise<void> {
+  const res = await fetch(`${DRIVE_API}/files/${fileId}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ name: newName }),
+  });
+  if (res.status === 401) throw new Error('TOKEN_EXPIRED');
+  if (!res.ok) throw new Error(`Rename Error: ${res.status}`);
+}
+
+/** Extract Google Drive folder ID from URL or raw ID */
+export function extractFolderIdFromUrl(input: string): string | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+
+  // Matches /folders/<id> pattern (with optional /u/<n>/ prefix)
+  const urlMatch = trimmed.match(/\/folders\/([a-zA-Z0-9_-]+)/);
+  if (urlMatch && urlMatch[1]) return urlMatch[1];
+
+  // Support ?id=<id> query param form
+  const queryMatch = trimmed.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if (queryMatch && queryMatch[1]) return queryMatch[1];
+
+  // Raw ID: at least 20 chars of [A-Za-z0-9_-]
+  if (/^[a-zA-Z0-9_-]{20,}$/.test(trimmed)) return trimmed;
+
+  return null;
+}
+
 /** Get human-readable file size */
 export function formatFileSize(bytes?: string): string {
   if (!bytes) return '—';

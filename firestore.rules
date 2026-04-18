@@ -150,5 +150,13 @@ service cloud.firestore {
       allow delete: if isAuthenticated() && resource.data.uid == request.auth.uid;
       allow update: if false;
     }
+
+    // ===============================================================
+    // Config - admin write, authenticated read
+    // ===============================================================
+    match /config/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
   }
 }
