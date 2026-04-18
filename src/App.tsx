@@ -1271,8 +1271,10 @@ export default function App() {
     } catch (e: any) {
       if (e.message === 'TOKEN_EXPIRED') {
         setGoogleAccessToken(null);
+      } else if (e.message === 'PERMISSION_DENIED') {
+        setTeamFolderError('REAUTH_REQUIRED');
       } else {
-        setTeamFolderError('폴더를 불러오지 못했습니다. 폴더가 공유되어 있는지 확인하세요.');
+        setTeamFolderError('폴더를 불러오지 못했습니다. 폴더가 내 Google 계정과 공유되어 있는지 확인하세요.');
       }
     } finally {
       setTeamFolderLoading(false);
@@ -1340,6 +1342,14 @@ export default function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, googleAccessToken, loadDriveFiles]);
+
+  // Auto-load team folder files when folder ID becomes available (after admin registers folder)
+  useEffect(() => {
+    if (activeTab === 'docs' && googleAccessToken && teamFolderCurrentId) {
+      loadTeamFolderFiles();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teamFolderCurrentId]);
 
   const handleFileUpload = async (files: FileList | null) => {
     if (!files || !googleAccessToken) return;
@@ -2969,9 +2979,24 @@ export default function App() {
                   ) : teamFolderError ? (
                     <div className="p-8 text-center">
                       <AlertCircle className="w-10 h-10 mx-auto mb-2 text-amber-400" />
-                      <p className="text-sm font-medium text-slate-600">{teamFolderError}</p>
-                      <p className="text-xs text-slate-400 mt-1">폴더가 내 Google 계정과 공유되어 있는지 확인하세요.</p>
-                      <button onClick={() => loadTeamFolderFiles()} className="mt-3 text-sm text-indigo-600 hover:underline">다시 시도</button>
+                      {teamFolderError === 'REAUTH_REQUIRED' ? (
+                        <>
+                          <p className="text-sm font-medium text-slate-700">Drive 접근 권한이 부족합니다.</p>
+                          <p className="text-xs text-slate-500 mt-1">업데이트된 권한으로 재로그인이 필요합니다.</p>
+                          <button
+                            onClick={async () => { await signOut(auth); setGoogleAccessToken(null); setTeamFolderError(null); }}
+                            className="mt-3 px-4 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition-colors"
+                          >
+                            로그아웃 후 재로그인
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-sm font-medium text-slate-600">{teamFolderError}</p>
+                          <p className="text-xs text-slate-400 mt-1">폴더가 내 Google 계정과 공유되어 있는지 확인하세요.</p>
+                          <button onClick={() => loadTeamFolderFiles()} className="mt-3 text-sm text-indigo-600 hover:underline">다시 시도</button>
+                        </>
+                      )}
                     </div>
                   ) : teamFolderFiles.length === 0 ? (
                     <div className="p-8 text-center text-slate-400">
@@ -3070,6 +3095,9 @@ export default function App() {
                           setAt: Date.now(),
                         });
                         setTeamFolderUrlInput('');
+                        setTeamFolderCurrentId(folderId);
+                        setTeamFolderPath([{ id: folderId, name: '팀 공유 폴더' }]);
+                        setTimeout(() => loadTeamFolderFiles(folderId), 300);
                       }}
                       className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors whitespace-nowrap"
                     >

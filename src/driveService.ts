@@ -24,6 +24,7 @@ async function driveRequest(url: string, token: string, options?: RequestInit) {
     },
   });
   if (res.status === 401) throw new Error('TOKEN_EXPIRED');
+  if (res.status === 403) throw new Error('PERMISSION_DENIED');
   if (!res.ok) throw new Error(`Drive API Error: ${res.status}`);
   return res.json();
 }
