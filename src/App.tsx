@@ -6,7 +6,7 @@ import { Task, Status, Priority, Comment, CalendarEvent, AiResult, Announcement,
 import { manualContent, Language } from './manualContent';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, User } from 'firebase/auth';
-import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, query, orderBy, limit, addDoc, getDocs, getDoc } from 'firebase/firestore';
+import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, query, orderBy, limit, addDoc, getDocs, getDoc, getDocFromServer } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { initFCM, onForegroundMessage, removeFCMToken } from './fcm';
@@ -1368,7 +1368,7 @@ export default function App() {
 
   const refreshTeamFolderConfig = async () => {
     try {
-      const snap = await getDoc(doc(db, 'config', 'teamDriveFolder'));
+      const snap = await getDocFromServer(doc(db, 'config', 'teamDriveFolder'));
       applyTeamFolderConfig(snap.exists() ? snap.data() as any : null);
     } catch (e) {
       console.warn('Team folder config read error:', e);
@@ -2655,9 +2655,9 @@ export default function App() {
                             const fn = httpsCallable(functions, 'setTeamFolderConfig');
                             const folderUrl = input.startsWith('http') ? input : `https://drive.google.com/drive/folders/${folderId}`;
                             await fn({ folderId, folderName: '팀 공유 폴더', folderUrl });
+                            applyTeamFolderConfig({ folderId, folderName: '팀 공유 폴더', folderUrl, setBy: user?.email || 'admin', setAt: Date.now() });
                             setTeamFolderUrlInput('');
                             setTeamFolderSaveMsg({ type: 'success', text: '폴더가 등록되었습니다!' });
-                            await refreshTeamFolderConfig();
                           } catch (e: any) {
                             console.error('Team folder save error:', e);
                             setTeamFolderSaveMsg({ type: 'error', text: `저장 실패: ${e?.message || '알 수 없는 오류'}` });
@@ -3283,9 +3283,9 @@ export default function App() {
                           const fn = httpsCallable(functions, 'setTeamFolderConfig');
                           const folderUrl = input.startsWith('http') ? input : `https://drive.google.com/drive/folders/${folderId}`;
                           await fn({ folderId, folderName: '팀 공유 폴더', folderUrl });
+                          applyTeamFolderConfig({ folderId, folderName: '팀 공유 폴더', folderUrl, setBy: user?.email || 'admin', setAt: Date.now() });
                           setTeamFolderUrlInput('');
                           setTeamFolderSaveMsg({ type: 'success', text: '폴더가 등록되었습니다!' });
-                          await refreshTeamFolderConfig();
                         } catch (e: any) {
                           console.error('Team folder save error:', e);
                           {
