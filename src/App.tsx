@@ -1565,15 +1565,20 @@ export default function App() {
     }
   };
 
+  const signInWithDrive = async (forceConsent = false) => {
+    const provider = new GoogleAuthProvider();
+    provider.addScope('https://www.googleapis.com/auth/drive');
+    provider.setCustomParameters({ prompt: forceConsent ? 'consent' : 'select_account' });
+    const result = await signInWithPopup(auth, provider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    if (credential?.accessToken) {
+      setGoogleAccessToken(credential.accessToken);
+    }
+  };
+
   const handleLogin = async () => {
     try {
-      const provider = new GoogleAuthProvider();
-      provider.addScope('https://www.googleapis.com/auth/drive');
-      const result = await signInWithPopup(auth, provider);
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      if (credential?.accessToken) {
-        setGoogleAccessToken(credential.accessToken);
-      }
+      await signInWithDrive(false);
     } catch (error) {
       console.error("Login Error:", error);
     }
@@ -3181,10 +3186,15 @@ export default function App() {
                           <p className="text-sm font-medium text-slate-700">Drive 접근 권한이 부족합니다.</p>
                           <p className="text-xs text-slate-500 mt-1">Drive 권한을 포함하여 다시 로그인해 주세요.</p>
                           <button
-                            onClick={async () => { await signOut(auth); setGoogleAccessToken(null); setTeamFolderError(null); }}
+                            onClick={async () => {
+                              await signOut(auth);
+                              setGoogleAccessToken(null);
+                              setTeamFolderError(null);
+                              await signInWithDrive(true);
+                            }}
                             className="mt-3 px-4 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition-colors"
                           >
-                            로그아웃 후 재로그인
+                            Drive 권한으로 재로그인
                           </button>
                         </>
                       ) : (
@@ -3396,11 +3406,16 @@ export default function App() {
                     ) : myTeamFolderError ? (
                       <div className="p-8 text-center">
                         <AlertCircle className="w-10 h-10 mx-auto mb-2 text-amber-400" />
-                        {myTeamFolderError === 'REAUTH_REQUIRED' ? (
+                        {myTeamFolderError === 'DRIVE_API_NOT_ENABLED' ? (
+                          <>
+                            <p className="text-sm font-medium text-slate-700">Google Drive API가 활성화되지 않았습니다.</p>
+                            <p className="text-xs text-slate-500 mt-1">Google Cloud Console → API 및 서비스에서 Drive API를 활성화하세요.</p>
+                          </>
+                        ) : myTeamFolderError === 'REAUTH_REQUIRED' ? (
                           <>
                             <p className="text-sm font-medium text-slate-700">Drive 접근 권한이 부족합니다.</p>
-                            <button onClick={async () => { await signOut(auth); setGoogleAccessToken(null); setMyTeamFolderError(null); }} className="mt-3 px-4 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition-colors">
-                              로그아웃 후 재로그인
+                            <button onClick={async () => { await signOut(auth); setGoogleAccessToken(null); setMyTeamFolderError(null); await signInWithDrive(true); }} className="mt-3 px-4 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition-colors">
+                              Drive 권한으로 재로그인
                             </button>
                           </>
                         ) : (
