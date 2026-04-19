@@ -936,6 +936,7 @@ export default function App() {
       setMyTeamFolderFiles(files);
     } catch (e: any) {
       if (e.message === 'TOKEN_EXPIRED') setGoogleAccessToken(null);
+      else if (e.message === 'DRIVE_API_NOT_ENABLED') setMyTeamFolderError('DRIVE_API_NOT_ENABLED');
       else if (e.message === 'PERMISSION_DENIED') setMyTeamFolderError('REAUTH_REQUIRED');
       else setMyTeamFolderError('폴더를 불러오지 못했습니다.');
     } finally {
@@ -1403,6 +1404,8 @@ export default function App() {
     } catch (e: any) {
       if (e.message === 'TOKEN_EXPIRED') {
         setGoogleAccessToken(null);
+      } else if (e.message === 'DRIVE_API_NOT_ENABLED') {
+        setTeamFolderError('DRIVE_API_NOT_ENABLED');
       } else if (e.message === 'PERMISSION_DENIED') {
         setTeamFolderError('REAUTH_REQUIRED');
       } else {
@@ -3167,10 +3170,16 @@ export default function App() {
                   ) : teamFolderError ? (
                     <div className="p-8 text-center">
                       <AlertCircle className="w-10 h-10 mx-auto mb-2 text-amber-400" />
-                      {teamFolderError === 'REAUTH_REQUIRED' ? (
+                      {teamFolderError === 'DRIVE_API_NOT_ENABLED' ? (
+                        <>
+                          <p className="text-sm font-medium text-slate-700">Google Drive API가 활성화되지 않았습니다.</p>
+                          <p className="text-xs text-slate-500 mt-1">Google Cloud Console → API 및 서비스에서 Google Drive API를 활성화하세요.</p>
+                          <button onClick={() => loadTeamFolderFiles()} className="mt-3 text-sm text-indigo-600 hover:underline">다시 시도</button>
+                        </>
+                      ) : teamFolderError === 'REAUTH_REQUIRED' ? (
                         <>
                           <p className="text-sm font-medium text-slate-700">Drive 접근 권한이 부족합니다.</p>
-                          <p className="text-xs text-slate-500 mt-1">업데이트된 권한으로 재로그인이 필요합니다.</p>
+                          <p className="text-xs text-slate-500 mt-1">Drive 권한을 포함하여 다시 로그인해 주세요.</p>
                           <button
                             onClick={async () => { await signOut(auth); setGoogleAccessToken(null); setTeamFolderError(null); }}
                             className="mt-3 px-4 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition-colors"

@@ -24,7 +24,14 @@ async function driveRequest(url: string, token: string, options?: RequestInit) {
     },
   });
   if (res.status === 401) throw new Error('TOKEN_EXPIRED');
-  if (res.status === 403) throw new Error('PERMISSION_DENIED');
+  if (res.status === 403) {
+    const body = await res.json().catch(() => ({}));
+    const reason = body?.error?.errors?.[0]?.reason ?? '';
+    // insufficientPermissions / insufficientScopes → need re-auth
+    // accessNotConfigured → Drive API not enabled in Google Cloud
+    if (reason === 'accessNotConfigured') throw new Error('DRIVE_API_NOT_ENABLED');
+    throw new Error('PERMISSION_DENIED');
+  }
   if (!res.ok) throw new Error(`Drive API Error: ${res.status}`);
   return res.json();
 }
