@@ -64,21 +64,28 @@ service cloud.firestore {
 
     // ===============================================================
     // Admins
-    // - read: any authenticated user
-    // - create: existing admin OR self-registration (for initial admin bootstrap)
+    // - read: any authenticated user (needed for isAdmin() checks and UI)
+    // - create: only if invited via admin_invites OR bootstrapping initial admin
     // - update/delete: existing admin only
     // ===============================================================
     match /admins/{uid} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && request.auth.uid == uid;
+      // [SECURITY FIX] Must have an admin invite; prevents unauthorized self-elevation
+      allow create: if isAuthenticated() &&
+                    request.auth.uid == uid &&
+                    exists(/databases/$(database)/documents/admin_invites/$(request.auth.token.email));
       allow update, delete: if isAdmin();
     }
 
     // ===============================================================
-    // Admin invites - admin write, authenticated read
+    // Admin invites
+    // - read: admin OR the invited user themselves (to check their own invite status)
+    // - write: admin only
     // ===============================================================
     match /admin_invites/{email} {
-      allow read: if isAuthenticated();
+      // [SECURITY FIX] Was readable by ALL authenticated users — now restricted
+      allow read: if isAdmin() ||
+                  (isAuthenticated() && request.auth.token.email == email);
       allow write: if isAdmin();
     }
 
@@ -96,7 +103,8 @@ service cloud.firestore {
     match /meetings/{id} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && createdByMatchesAuth();
-      allow update: if isAuthenticated();
+      // [SECURITY FIX] Protect immutable fields on update
+      allow update: if isAuthenticated() && immutableFieldsUnchanged();
       allow delete: if isCreator() || isAdmin();
     }
 
@@ -117,10 +125,14 @@ service cloud.firestore {
     }
 
     // ===============================================================
-    // Team invites - admin write, authenticated read
+    // Team invites
+    // - read: admin OR the user whose email was invited (to check own invite)
+    // - write: admin only
     // ===============================================================
     match /team_invites/{email} {
-      allow read: if isAuthenticated();
+      // [SECURITY FIX] Was readable by ALL authenticated users — now restricted
+      allow read: if isAdmin() ||
+                  (isAuthenticated() && request.auth.token.email == email);
       allow write: if isAdmin();
     }
 
@@ -135,7 +147,7 @@ service cloud.firestore {
     }
 
     // ===============================================================
-    // Users - profile written on login, admin reads all
+    // Users - own profile R/W, admin reads all
     // ===============================================================
     match /users/{uid} {
       allow read: if isAuthenticated() && (request.auth.uid == uid || isAdmin());
@@ -144,10 +156,16 @@ service cloud.firestore {
     }
 
     // ===============================================================
-    // FCM Tokens - keyed by token string, has uid field
+    // FCM Tokens
+    // - read: own tokens only or admin (prevents token enumeration)
+    // - create: authenticated, must match own uid
+    // - delete: authenticated, must own the token
+    // - update: never (tokens are replaced, not updated)
     // ===============================================================
     match /fcm_tokens/{tokenId} {
-      allow read: if isAuthenticated();
+      // [SECURITY FIX] Was readable by ALL authenticated users — now restricted
+      allow read: if isAdmin() ||
+                  (isAuthenticated() && resource.data.uid == request.auth.uid);
       allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid;
       allow delete: if isAuthenticated() && resource.data.uid == request.auth.uid;
       allow update: if false;
