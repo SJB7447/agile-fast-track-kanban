@@ -5,11 +5,81 @@ const { initializeApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 const { getMessaging } = require('firebase-admin/messaging');
 const { getAuth } = require('firebase-admin/auth');
+const nodemailer = require('nodemailer');
 
 initializeApp();
 
 const DATABASE_ID = process.env.DATABASE_ID;
 const db = getFirestore(DATABASE_ID);
+
+function createMailTransporter() {
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+  if (!user || !pass) return null;
+  return nodemailer.createTransport({
+    service: 'gmail',
+    auth: { user, pass },
+  });
+}
+
+async function sendInviteEmail(toEmail, teamName, invitedByName, appUrl) {
+  const transporter = createMailTransporter();
+  if (!transporter) {
+    console.warn('SMTP_USER/SMTP_PASS not configured — skipping email');
+    return;
+  }
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER;
+  const loginUrl = appUrl || 'https://ai-studio-e8ec37ff-210b-4a12-b903-a1e7fa79036f.web.app';
+
+  const html = `
+<!DOCTYPE html>
+<html lang="ko">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:40px 0;">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.08);">
+        <tr><td style="background:linear-gradient(135deg,#6366f1,#8b5cf6);padding:32px 40px;text-align:center;">
+          <div style="font-size:32px;margin-bottom:8px;">📩</div>
+          <h1 style="color:#fff;margin:0;font-size:22px;font-weight:700;">팀 초대</h1>
+        </td></tr>
+        <tr><td style="padding:36px 40px;">
+          <p style="color:#374151;font-size:16px;line-height:1.6;margin:0 0 24px;">안녕하세요,</p>
+          <p style="color:#374151;font-size:16px;line-height:1.6;margin:0 0 24px;">
+            <strong>${invitedByName}</strong>님이 <strong style="color:#6366f1;">${teamName}</strong> 팀에 초대했습니다.
+          </p>
+          <div style="background:#f8fafc;border-left:4px solid #6366f1;border-radius:4px;padding:16px 20px;margin:0 0 28px;">
+            <p style="margin:0;color:#64748b;font-size:14px;">아래 버튼을 클릭하여 로그인하면 팀에 자동으로 참가됩니다.</p>
+          </div>
+          <div style="text-align:center;margin:32px 0;">
+            <a href="${loginUrl}" style="display:inline-block;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;text-decoration:none;padding:14px 36px;border-radius:8px;font-size:16px;font-weight:600;">팀 참가하기</a>
+          </div>
+          <p style="color:#94a3b8;font-size:13px;line-height:1.6;margin:24px 0 0;">
+            버튼이 작동하지 않으면 아래 링크를 복사하여 브라우저에 붙여넣으세요:<br>
+            <a href="${loginUrl}" style="color:#6366f1;">${loginUrl}</a>
+          </p>
+        </td></tr>
+        <tr><td style="background:#f8fafc;padding:20px 40px;text-align:center;border-top:1px solid #e2e8f0;">
+          <p style="color:#94a3b8;font-size:12px;margin:0;">Fast-Track Agile Kanban · 이 메일은 자동 발송되었습니다.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+  try {
+    await transporter.sendMail({
+      from: `"Fast-Track Agile" <${from}>`,
+      to: toEmail,
+      subject: `[Fast-Track] ${invitedByName}님이 "${teamName}" 팀에 초대했습니다`,
+      html,
+    });
+    console.log(`Invite email sent to ${toEmail}`);
+  } catch (err) {
+    console.error(`Failed to send invite email to ${toEmail}:`, err.message);
+  }
+}
 
 /**
  * Send FCM multicast, auto-clean invalid tokens.
@@ -231,7 +301,12 @@ exports.onTeamInviteCreated = onDocumentCreated(
     const email = event.params?.email;
     if (!invite || !email) return;
 
-    // Find the invited user's UID via the users collection
+    const invitedBy = invite.invitedByName || invite.invitedBy || '관리자';
+
+    // Send invite email (works even for users who haven't signed up yet)
+    await sendInviteEmail(email, invite.teamName, invitedBy, null);
+
+    // Also send FCM push notification if the user already has an account
     const usersSnap = await db.collection('users').where('email', '==', email).limit(1).get();
     if (!usersSnap.empty) {
       const uid = usersSnap.docs[0].id;
@@ -242,8 +317,7 @@ exports.onTeamInviteCreated = onDocumentCreated(
       );
     }
 
-    // Also notify all admins about the invite
-    const invitedBy = invite.invitedByName || invite.invitedBy || '관리자';
+    // Notify all admins about the invite being sent
     await sendToAdmins(
       { title: '📩 팀 초대 발송', body: `${invitedBy} → ${email} (${invite.teamName})` },
       { type: 'team-invite-sent', tag: 'team-invite-sent', url: '/?tab=teams' }
