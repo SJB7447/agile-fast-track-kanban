@@ -20,11 +20,11 @@ function showSafeNotification(title, body, data) {
 }
 
 // ===== Firebase Cloud Messaging =====
-// Wrapped in try-catch: if CDN import fails on iOS Safari, fallback push handler takes over
+// gstatic.com is more reliable than googleapis.com (fewer corporate firewall blocks)
 let firebaseMessagingReady = false;
 try {
-  importScripts('https://www.googleapis.com/firebasejs/10.12.0/firebase-app-compat.js');
-  importScripts('https://www.googleapis.com/firebasejs/10.12.0/firebase-messaging-compat.js');
+  importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
+  importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js');
 
   const firebaseConfig = {
     apiKey: 'AIzaSyBbNjH84SOMYxxyd65VpV1ZWhDwudywC70',
@@ -152,7 +152,11 @@ self.addEventListener('notificationclick', (event) => {
           return client.focus();
         }
       }
-      return self.clients.openWindow(targetUrl);
+      // Must be absolute URL for PWA to open correctly on iOS/Android
+      const absoluteUrl = targetUrl.startsWith('http')
+        ? targetUrl
+        : self.location.origin + targetUrl;
+      return self.clients.openWindow(absoluteUrl);
     })
   );
 });

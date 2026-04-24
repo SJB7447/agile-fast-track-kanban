@@ -84,22 +84,26 @@ async function sendInviteEmail(toEmail, teamName, invitedByName, appUrl) {
 /**
  * Send FCM multicast, auto-clean invalid tokens.
  */
+const APP_URL = 'https://arboreal-melody-479205-g8.web.app';
+
 async function sendMulticast(notification, data, tokens, tokenDocs) {
   if (tokens.length === 0) return;
 
+  // build absolute link — required for PWA to open correctly on iOS/Android
+  const targetPath = (data && data.url) ? data.url : '/';
+  const absoluteLink = APP_URL + targetPath;
+
   const message = {
     notification,
-    data,
+    data: { ...data },
     tokens,
     webpush: {
       notification: {
-        icon: '/icons/icon-192.png',
-        badge: '/icons/icon-192.png',
-        vibrate: [200, 100, 200],
-        renotify: true,
-        tag: data.tag || 'default',
+        icon: APP_URL + '/icons/icon-192.png',
+        // badge/renotify/vibrate are not supported on iOS Safari; omit to avoid silent failures
+        tag: (data && data.tag) || 'default',
       },
-      fcmOptions: { link: '/' },
+      fcmOptions: { link: absoluteLink },
     },
   };
 
@@ -177,17 +181,14 @@ async function sendToAdmins(notification, data) {
  * Send FCM to a specific user by UID.
  */
 async function sendToUserByUid(uid, notification, data) {
-  const tokensSnap = await db.collection('fcm_tokens').get();
+  const tokensSnap = await db.collection('fcm_tokens').where('uid', '==', uid).get();
   if (tokensSnap.empty) return;
 
   const tokens = [];
   const tokenDocs = [];
   tokensSnap.forEach(doc => {
-    const td = doc.data();
-    if (td.uid === uid) {
-      tokens.push(td.token);
-      tokenDocs.push(doc);
-    }
+    tokens.push(doc.data().token);
+    tokenDocs.push(doc);
   });
 
   await sendMulticast(notification, data, tokens, tokenDocs);
@@ -278,7 +279,7 @@ exports.onTaskUpdated = onDocumentUpdated(
   }
 );
 
-// ========== Comment Created ==========
+// ========== Comment Created (일반 채널) ==========
 exports.onCommentCreated = onDocumentCreated(
   { document: 'comments/{commentId}', database: DATABASE_ID },
   async (event) => {
@@ -289,6 +290,43 @@ exports.onCommentCreated = onDocumentCreated(
       { title: '💬 새 코멘트', body: `${comment.authorName}: ${comment.text.substring(0, 100)}` },
       { type: 'comment', tag: 'comment', url: '/?tab=comments' },
       comment.authorId || null
+    );
+  }
+);
+
+// ========== Team Chat Message Created (팀 채널) ==========
+exports.onTeamMessageCreated = onDocumentCreated(
+  { document: 'teamComments/{teamId}/messages/{messageId}', database: DATABASE_ID },
+  async (event) => {
+    const message = event.data?.data();
+    const teamId = event.params?.teamId;
+    if (!message || !teamId) return;
+
+    // Get team info to find member UIDs and team name
+    const teamDoc = await db.collection('teams').doc(teamId).get();
+    if (!teamDoc.exists) return;
+    const team = teamDoc.data();
+    const teamName = team.name || '팀';
+    const memberUids = new Set((team.members || []).map(m => m.uid));
+
+    // Fetch only tokens belonging to team members (exclude message author)
+    const allTokensSnap = await db.collection('fcm_tokens').get();
+    const tokens = [];
+    const tokenDocs = [];
+    allTokensSnap.forEach(doc => {
+      const td = doc.data();
+      if (memberUids.has(td.uid) && td.uid !== message.authorId) {
+        tokens.push(td.token);
+        tokenDocs.push(doc);
+      }
+    });
+
+    if (tokens.length === 0) return;
+    await sendMulticast(
+      { title: `💬 #${teamName}`, body: `${message.authorName}: ${message.text.substring(0, 100)}` },
+      { type: 'team-comment', tag: 'team-comment', url: '/?tab=comments' },
+      tokens,
+      tokenDocs
     );
   }
 );

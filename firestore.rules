@@ -55,6 +55,26 @@ service cloud.firestore {
     }
 
     // ===============================================================
+    // Team-specific chat channels (subcollection per team)
+    // ===============================================================
+    match /teamComments/{teamId}/messages/{messageId} {
+      function isTeamMember() {
+        return isAuthenticated() &&
+               exists(/databases/$(database)/documents/userTeams/$(request.auth.uid)) &&
+               get(/databases/$(database)/documents/userTeams/$(request.auth.uid)).data.teamId == teamId;
+      }
+      allow read: if isAdmin() || isTeamMember();
+      allow create: if (isAdmin() || isTeamMember()) &&
+                    request.resource.data.authorId == request.auth.uid &&
+                    request.resource.data.text is string &&
+                    request.resource.data.text.size() >= 1 &&
+                    request.resource.data.text.size() <= 2000;
+      allow delete: if isAuthenticated() && resource.data.authorId == request.auth.uid;
+      allow update: if (isAdmin() || isTeamMember()) &&
+                    request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions']);
+    }
+
+    // ===============================================================
     // Announcements - admin write, all authenticated read
     // ===============================================================
     match /announcements/{id} {

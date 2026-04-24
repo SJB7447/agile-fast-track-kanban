@@ -211,6 +211,7 @@ export default function App() {
   const [hoveredCommentId, setHoveredCommentId] = useState<string | null>(null);
   const [showEmojiPickerFor, setShowEmojiPickerFor] = useState<string | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const [selectedChannelId, setSelectedChannelId] = useState<string>('general');
 
   // Announcements State
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
@@ -687,27 +688,6 @@ export default function App() {
       setFirestoreError(t('error.firestoreTasks') || 'Failed to load tasks. Please refresh.');
     });
 
-    // Limit comments to latest 50 to reduce reads
-    const commentsQuery = query(collection(db, 'comments'), orderBy('createdAt', 'desc'), limit(50));
-    const unsubscribeComments = onSnapshot(commentsQuery, (snapshot) => {
-      const newComments = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Comment));
-
-      // Notify for new comments (skip initial load)
-      if (!isInitialCommentLoad.current && notifSettingsRef.current.enabled) {
-        const newest = newComments[0];
-        if (newest && newest.id !== prevLatestCommentIdRef.current && newest.authorId !== user.uid) {
-          notifyCommentAdded(newest.authorName, tRef.current || undefined);
-          addNotifItem(tRef.current?.('notif.push.comment.title') || '새 코멘트', `${newest.authorName}: ${newest.text.substring(0, 50)}`, 'comments');
-        }
-      }
-      isInitialCommentLoad.current = false;
-      prevLatestCommentIdRef.current = newComments[0]?.id ?? null;
-      setComments(newComments);
-    }, (error) => {
-      console.error("Firestore Comments Error:", error);
-      setFirestoreError(t('error.firestoreComments') || 'Failed to load comments. Please refresh.');
-    });
-
     // Announcements listener
     const announcementsQuery = query(collection(db, 'announcements'), orderBy('createdAt', 'desc'), limit(30));
     const unsubscribeAnnouncements = onSnapshot(announcementsQuery, (snapshot) => {
@@ -787,7 +767,6 @@ export default function App() {
 
     return () => {
       unsubscribeTasks();
-      unsubscribeComments();
       unsubscribeAnnouncements();
       unsubscribeAdmins();
       unsubscribeProjects();
@@ -795,6 +774,33 @@ export default function App() {
       unsubscribeUserTeam();
     };
   }, [isAuthReady, user]);
+
+  // Comments listener — reactive to selectedChannelId (switches between general and team channels)
+  useEffect(() => {
+    if (!isAuthReady || !user) return;
+    isInitialCommentLoad.current = true;
+    const commentsColRef = selectedChannelId === 'general'
+      ? collection(db, 'comments')
+      : collection(db, 'teamComments', selectedChannelId, 'messages');
+    const commentsQuery = query(commentsColRef, orderBy('createdAt', 'desc'), limit(50));
+    const unsubscribeComments = onSnapshot(commentsQuery, (snapshot) => {
+      const newComments = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Comment));
+      if (!isInitialCommentLoad.current && notifSettingsRef.current.enabled) {
+        const newest = newComments[0];
+        if (newest && newest.id !== prevLatestCommentIdRef.current && newest.authorId !== user.uid) {
+          notifyCommentAdded(newest.authorName, tRef.current || undefined);
+          addNotifItem(tRef.current?.('notif.push.comment.title') || '새 코멘트', `${newest.authorName}: ${newest.text.substring(0, 50)}`, 'comments');
+        }
+      }
+      isInitialCommentLoad.current = false;
+      prevLatestCommentIdRef.current = newComments[0]?.id ?? null;
+      setComments(newComments);
+    }, (error) => {
+      console.error("Firestore Comments Error:", error);
+      setFirestoreError(t('error.firestoreComments') || 'Failed to load comments. Please refresh.');
+    });
+    return () => unsubscribeComments();
+  }, [isAuthReady, user, selectedChannelId]);
 
   // Auto-scroll chat to bottom when new messages arrive
   useEffect(() => {
@@ -1189,6 +1195,10 @@ export default function App() {
     });
   };
 
+  const getChannelColRef = () => selectedChannelId === 'general'
+    ? collection(db, 'comments')
+    : collection(db, 'teamComments', selectedChannelId, 'messages');
+
   const handleCommentSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!newComment.trim() || !user) return;
@@ -1207,7 +1217,7 @@ export default function App() {
           authorName: replyingTo.authorName,
         };
       }
-      await setDoc(doc(collection(db, 'comments')), payload);
+      await setDoc(doc(getChannelColRef()), payload);
       setNewComment("");
       setReplyingTo(null);
     } catch (err) {
@@ -1217,7 +1227,7 @@ export default function App() {
 
   const handleDeleteComment = async (commentId: string) => {
     try {
-      await deleteDoc(doc(db, 'comments', commentId));
+      await deleteDoc(doc(getChannelColRef(), commentId));
     } catch (err) {
       console.error(err);
     }
@@ -1234,7 +1244,7 @@ export default function App() {
       reactions[emoji] = [...uids, user.uid];
     }
     try {
-      await setDoc(doc(db, 'comments', commentId), { reactions }, { merge: true });
+      await setDoc(doc(getChannelColRef(), commentId), { reactions }, { merge: true });
     } catch (err) {
       console.error(err);
     }
@@ -3686,220 +3696,263 @@ export default function App() {
             </div>
           )}
 
-          {/* Comments — Chat UI */}
+          {/* Comments — Chat UI with team channel switcher */}
           {activeTab === 'comments' && (() => {
             const CHAT_EMOJIS = ['👍', '✅', '🔥', '😂', '😢', '❤️'];
             const sortedComments = [...comments].reverse();
             const fmtDate = (ts: number) => new Date(ts).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' });
             const fmtTime = (ts: number) => new Date(ts).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
             const isSameDay = (a: number, b: number) => new Date(a).toDateString() === new Date(b).toDateString();
+
+            // Build available channels based on user role
+            const availableChannels: { id: string; name: string; description: string }[] = [
+              { id: 'general', name: '일반', description: '팀원들과 자유롭게 대화하세요' },
+              ...(isAdmin
+                ? teams.map(t => ({ id: t.id, name: t.name, description: t.description || '팀 채널' }))
+                : myTeamInfo
+                  ? [{ id: myTeamInfo.teamId, name: myTeamInfo.teamName, description: '우리 팀 채널' }]
+                  : []
+              ),
+            ];
+            const currentChannel = availableChannels.find(c => c.id === selectedChannelId) || availableChannels[0];
+
             return (
-              <div className="max-w-3xl mx-auto flex flex-col h-[calc(100vh-140px)]">
-                {/* Header */}
-                <div className="bg-white rounded-t-xl border border-slate-200 shadow-sm px-6 py-4 shrink-0 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <MessageSquare className="w-5 h-5 text-indigo-500" />
-                    <span className="font-semibold text-slate-800">팀 채팅</span>
-                    <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{comments.length}</span>
+              <div className="flex h-[calc(100vh-140px)] max-w-5xl mx-auto overflow-hidden rounded-xl border border-slate-200 shadow-sm">
+
+                {/* ── Channel Sidebar ── */}
+                <div className="w-52 bg-indigo-950 flex flex-col shrink-0">
+                  <div className="px-4 py-4 border-b border-indigo-800/60">
+                    <div className="flex items-center gap-2">
+                      <MessageSquare className="w-4 h-4 text-indigo-400" />
+                      <span className="text-sm font-bold text-white">팀 채팅</span>
+                    </div>
                   </div>
-                  <p className="text-xs text-slate-400">팀원들과 자유롭게 대화하세요</p>
+                  <div className="px-2 pt-3 pb-1">
+                    <span className="text-[10px] font-semibold text-indigo-400 uppercase tracking-wider px-2">채널</span>
+                  </div>
+                  <div className="flex-1 overflow-y-auto px-2 pb-4 space-y-0.5">
+                    {availableChannels.map(ch => (
+                      <button
+                        key={ch.id}
+                        onClick={() => { setSelectedChannelId(ch.id); setReplyingTo(null); setNewComment(''); }}
+                        className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors text-left ${
+                          selectedChannelId === ch.id
+                            ? 'bg-indigo-600 text-white font-medium'
+                            : 'text-indigo-300 hover:bg-indigo-800/60 hover:text-white'
+                        }`}
+                      >
+                        <span className="text-indigo-400 font-semibold shrink-0">#</span>
+                        <span className="truncate">{ch.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {myTeamInfo && (
+                    <div className="px-3 py-3 border-t border-indigo-800/60">
+                      <p className="text-[10px] text-indigo-500 truncate">소속: {myTeamInfo.teamName}</p>
+                      <p className="text-[10px] text-indigo-600 capitalize">{myTeamInfo.role === 'lead' ? '팀장' : '팀원'}</p>
+                    </div>
+                  )}
                 </div>
 
-                {/* Messages */}
-                <div
-                  className="flex-1 overflow-y-auto bg-slate-50 px-4 py-4 border-l border-r border-slate-200 space-y-1"
-                  onClick={() => setShowEmojiPickerFor(null)}
-                >
-                  {sortedComments.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-full text-slate-400">
-                      <MessageSquare className="w-12 h-12 mb-3 opacity-20" />
-                      <p className="text-sm">첫 번째 메시지를 보내보세요!</p>
+                {/* ── Chat Area ── */}
+                <div className="flex-1 flex flex-col overflow-hidden bg-white">
+                  {/* Header */}
+                  <div className="bg-white border-b border-slate-200 px-5 py-3 shrink-0 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-indigo-400 text-lg">#</span>
+                      <span className="font-semibold text-slate-800">{currentChannel.name}</span>
+                      <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{comments.length}</span>
                     </div>
-                  ) : (
-                    sortedComments.map((comment, idx) => {
-                      const isMine = comment.authorId === user?.uid;
-                      const prev = sortedComments[idx - 1];
-                      const next = sortedComments[idx + 1];
-                      const isGrouped = !!(prev && prev.authorId === comment.authorId && isSameDay(prev.createdAt, comment.createdAt) && comment.createdAt - prev.createdAt < 5 * 60 * 1000);
-                      const isLastInGroup = !next || next.authorId !== comment.authorId || !isSameDay(comment.createdAt, next.createdAt) || next.createdAt - comment.createdAt >= 5 * 60 * 1000;
-                      const showDateSep = !prev || !isSameDay(prev.createdAt, comment.createdAt);
-                      const isHovered = hoveredCommentId === comment.id;
-                      const hasReactions = comment.reactions && Object.keys(comment.reactions).length > 0;
-                      return (
-                        <div key={comment.id}>
-                          {/* Date separator */}
-                          {showDateSep && (
-                            <div className="flex items-center gap-3 my-4">
-                              <div className="flex-1 h-px bg-slate-200" />
-                              <span className="text-xs text-slate-400 font-medium px-2">{fmtDate(comment.createdAt)}</span>
-                              <div className="flex-1 h-px bg-slate-200" />
-                            </div>
-                          )}
-                          {/* Message row */}
-                          <div
-                            className={`flex items-end gap-2 ${isMine ? 'flex-row-reverse' : 'flex-row'} ${isGrouped ? 'mt-0.5' : 'mt-3'}`}
-                            onMouseEnter={() => setHoveredCommentId(comment.id)}
-                            onMouseLeave={() => { setHoveredCommentId(null); setShowEmojiPickerFor(null); }}
-                          >
-                            {/* Avatar — only shown for last in group, other side */}
-                            {!isMine && (
-                              <div className="w-8 shrink-0">
-                                {isLastInGroup && (
-                                  <img src={comment.authorPhotoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(comment.authorName)}&background=e0e7ff&color=4338ca`} alt="" className="w-8 h-8 rounded-full ring-1 ring-white shadow-sm" />
-                                )}
+                    <p className="text-xs text-slate-400">{currentChannel.description}</p>
+                  </div>
+
+                  {/* Messages */}
+                  <div
+                    className="flex-1 overflow-y-auto bg-slate-50 px-4 py-4 space-y-1"
+                    onClick={() => setShowEmojiPickerFor(null)}
+                  >
+                    {sortedComments.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center h-full text-slate-400">
+                        <MessageSquare className="w-12 h-12 mb-3 opacity-20" />
+                        <p className="text-sm font-medium">#{currentChannel.name}</p>
+                        <p className="text-xs mt-1">첫 번째 메시지를 보내보세요!</p>
+                      </div>
+                    ) : (
+                      sortedComments.map((comment, idx) => {
+                        const isMine = comment.authorId === user?.uid;
+                        const prev = sortedComments[idx - 1];
+                        const next = sortedComments[idx + 1];
+                        const isGrouped = !!(prev && prev.authorId === comment.authorId && isSameDay(prev.createdAt, comment.createdAt) && comment.createdAt - prev.createdAt < 5 * 60 * 1000);
+                        const isLastInGroup = !next || next.authorId !== comment.authorId || !isSameDay(comment.createdAt, next.createdAt) || next.createdAt - comment.createdAt >= 5 * 60 * 1000;
+                        const showDateSep = !prev || !isSameDay(prev.createdAt, comment.createdAt);
+                        const isHovered = hoveredCommentId === comment.id;
+                        const hasReactions = comment.reactions && Object.keys(comment.reactions).length > 0;
+                        return (
+                          <div key={comment.id}>
+                            {/* Date separator */}
+                            {showDateSep && (
+                              <div className="flex items-center gap-3 my-4">
+                                <div className="flex-1 h-px bg-slate-200" />
+                                <span className="text-xs text-slate-400 font-medium px-2">{fmtDate(comment.createdAt)}</span>
+                                <div className="flex-1 h-px bg-slate-200" />
                               </div>
                             )}
-
-                            {/* Bubble + actions */}
-                            <div className={`flex flex-col ${isMine ? 'items-end' : 'items-start'} max-w-[72%]`}>
-                              {/* Name (only first in group) */}
-                              {!isMine && !isGrouped && (
-                                <span className="text-xs font-semibold text-slate-500 ml-1 mb-1">{comment.authorName}</span>
-                              )}
-
-                              {/* Reply-to preview inside bubble */}
-                              {comment.replyTo && (
-                                <div className={`mb-1 px-3 py-1.5 rounded-lg border-l-2 text-xs max-w-full ${isMine ? 'bg-indigo-400/20 border-indigo-300 text-indigo-200' : 'bg-slate-100 border-slate-300 text-slate-500'}`}>
-                                  <span className="font-semibold block">{comment.replyTo.authorName}</span>
-                                  <span className="truncate block">{comment.replyTo.text}</span>
-                                </div>
-                              )}
-
-                              {/* Bubble row with action buttons */}
-                              <div className={`flex items-center gap-1.5 ${isMine ? 'flex-row-reverse' : 'flex-row'}`}>
-                                {/* Action buttons on hover */}
-                                {isHovered && (
-                                  <div className="flex items-center gap-0.5 bg-white border border-slate-200 rounded-full shadow-sm px-1 py-0.5">
-                                    {/* Emoji picker toggle */}
-                                    <div className="relative">
-                                      <button
-                                        onClick={(e) => { e.stopPropagation(); setShowEmojiPickerFor(showEmojiPickerFor === comment.id ? null : comment.id); }}
-                                        className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-slate-100 transition-colors text-slate-400 hover:text-amber-500"
-                                        title="리액션"
-                                      >
-                                        <SmilePlus className="w-3.5 h-3.5" />
-                                      </button>
-                                      {showEmojiPickerFor === comment.id && (
-                                        <div
-                                          className={`absolute bottom-8 ${isMine ? 'right-0' : 'left-0'} bg-white border border-slate-200 rounded-xl shadow-lg p-1.5 flex gap-1 z-20`}
-                                          onClick={e => e.stopPropagation()}
-                                        >
-                                          {CHAT_EMOJIS.map(emoji => (
-                                            <button
-                                              key={emoji}
-                                              onClick={() => handleToggleReaction(comment.id, emoji, comment.reactions)}
-                                              className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-lg transition-colors"
-                                            >
-                                              {emoji}
-                                            </button>
-                                          ))}
-                                        </div>
-                                      )}
-                                    </div>
-                                    {/* Reply */}
-                                    <button
-                                      onClick={(e) => { e.stopPropagation(); setReplyingTo(comment); }}
-                                      className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-slate-100 transition-colors text-slate-400 hover:text-indigo-500"
-                                      title="답장"
-                                    >
-                                      <Reply className="w-3.5 h-3.5" />
-                                    </button>
-                                    {/* Delete (own messages only) */}
-                                    {isMine && (
-                                      <button
-                                        onClick={(e) => { e.stopPropagation(); handleDeleteComment(comment.id); }}
-                                        className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-red-50 transition-colors text-slate-400 hover:text-red-500"
-                                        title="삭제"
-                                      >
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                      </button>
-                                    )}
-                                  </div>
-                                )}
-
-                                {/* Bubble */}
-                                <div className={`px-3.5 py-2 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words ${
-                                  isMine
-                                    ? 'bg-indigo-600 text-white rounded-br-sm'
-                                    : 'bg-white text-slate-800 border border-slate-200 shadow-sm rounded-bl-sm'
-                                }`}>
-                                  {comment.text}
-                                </div>
-                              </div>
-
-                              {/* Reactions */}
-                              {hasReactions && (
-                                <div className="flex flex-wrap gap-1 mt-1 ml-1">
-                                  {Object.entries(comment.reactions!).map(([emoji, uids]) =>
-                                    uids.length > 0 ? (
-                                      <button
-                                        key={emoji}
-                                        onClick={() => handleToggleReaction(comment.id, emoji, comment.reactions)}
-                                        className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border transition-colors ${
-                                          uids.includes(user?.uid || '')
-                                            ? 'bg-indigo-100 border-indigo-300 text-indigo-700'
-                                            : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                                        }`}
-                                      >
-                                        <span>{emoji}</span>
-                                        <span>{uids.length}</span>
-                                      </button>
-                                    ) : null
+                            {/* Message row */}
+                            <div
+                              className={`flex items-end gap-2 ${isMine ? 'flex-row-reverse' : 'flex-row'} ${isGrouped ? 'mt-0.5' : 'mt-3'}`}
+                              onMouseEnter={() => setHoveredCommentId(comment.id)}
+                              onMouseLeave={() => { setHoveredCommentId(null); setShowEmojiPickerFor(null); }}
+                            >
+                              {/* Avatar */}
+                              {!isMine && (
+                                <div className="w-8 shrink-0">
+                                  {isLastInGroup && (
+                                    <img src={comment.authorPhotoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(comment.authorName)}&background=e0e7ff&color=4338ca`} alt="" className="w-8 h-8 rounded-full ring-1 ring-white shadow-sm" />
                                   )}
                                 </div>
                               )}
 
-                              {/* Time stamp (last in group) */}
-                              {isLastInGroup && (
-                                <span className="text-[10px] text-slate-400 mt-0.5 mx-1">{fmtTime(comment.createdAt)}</span>
-                              )}
+                              {/* Bubble + actions */}
+                              <div className={`flex flex-col ${isMine ? 'items-end' : 'items-start'} max-w-[72%]`}>
+                                {!isMine && !isGrouped && (
+                                  <span className="text-xs font-semibold text-slate-500 ml-1 mb-1">{comment.authorName}</span>
+                                )}
+
+                                {comment.replyTo && (
+                                  <div className={`mb-1 px-3 py-1.5 rounded-lg border-l-2 text-xs max-w-full ${isMine ? 'bg-indigo-400/20 border-indigo-300 text-indigo-200' : 'bg-slate-100 border-slate-300 text-slate-500'}`}>
+                                    <span className="font-semibold block">{comment.replyTo.authorName}</span>
+                                    <span className="truncate block">{comment.replyTo.text}</span>
+                                  </div>
+                                )}
+
+                                <div className={`flex items-center gap-1.5 ${isMine ? 'flex-row-reverse' : 'flex-row'}`}>
+                                  {isHovered && (
+                                    <div className="flex items-center gap-0.5 bg-white border border-slate-200 rounded-full shadow-sm px-1 py-0.5">
+                                      <div className="relative">
+                                        <button
+                                          onClick={(e) => { e.stopPropagation(); setShowEmojiPickerFor(showEmojiPickerFor === comment.id ? null : comment.id); }}
+                                          className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-slate-100 transition-colors text-slate-400 hover:text-amber-500"
+                                          title="리액션"
+                                        >
+                                          <SmilePlus className="w-3.5 h-3.5" />
+                                        </button>
+                                        {showEmojiPickerFor === comment.id && (
+                                          <div
+                                            className={`absolute bottom-8 ${isMine ? 'right-0' : 'left-0'} bg-white border border-slate-200 rounded-xl shadow-lg p-1.5 flex gap-1 z-20`}
+                                            onClick={e => e.stopPropagation()}
+                                          >
+                                            {CHAT_EMOJIS.map(emoji => (
+                                              <button
+                                                key={emoji}
+                                                onClick={() => handleToggleReaction(comment.id, emoji, comment.reactions)}
+                                                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-lg transition-colors"
+                                              >
+                                                {emoji}
+                                              </button>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); setReplyingTo(comment); }}
+                                        className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-slate-100 transition-colors text-slate-400 hover:text-indigo-500"
+                                        title="답장"
+                                      >
+                                        <Reply className="w-3.5 h-3.5" />
+                                      </button>
+                                      {isMine && (
+                                        <button
+                                          onClick={(e) => { e.stopPropagation(); handleDeleteComment(comment.id); }}
+                                          className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-red-50 transition-colors text-slate-400 hover:text-red-500"
+                                          title="삭제"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  <div className={`px-3.5 py-2 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words ${
+                                    isMine
+                                      ? 'bg-indigo-600 text-white rounded-br-sm'
+                                      : 'bg-white text-slate-800 border border-slate-200 shadow-sm rounded-bl-sm'
+                                  }`}>
+                                    {comment.text}
+                                  </div>
+                                </div>
+
+                                {hasReactions && (
+                                  <div className="flex flex-wrap gap-1 mt-1 ml-1">
+                                    {(Object.entries(comment.reactions!) as [string, string[]][]).map(([emoji, uids]) =>
+                                      uids.length > 0 ? (
+                                        <button
+                                          key={emoji}
+                                          onClick={() => handleToggleReaction(comment.id, emoji, comment.reactions)}
+                                          className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border transition-colors ${
+                                            uids.includes(user?.uid || '')
+                                              ? 'bg-indigo-100 border-indigo-300 text-indigo-700'
+                                              : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                                          }`}
+                                        >
+                                          <span>{emoji}</span>
+                                          <span>{uids.length}</span>
+                                        </button>
+                                      ) : null
+                                    )}
+                                  </div>
+                                )}
+
+                                {isLastInGroup && (
+                                  <span className="text-[10px] text-slate-400 mt-0.5 mx-1">{fmtTime(comment.createdAt)}</span>
+                                )}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      );
-                    })
-                  )}
-                  <div ref={chatEndRef} />
-                </div>
-
-                {/* Reply preview bar */}
-                {replyingTo && (
-                  <div className="bg-indigo-50 border-l border-r border-t border-indigo-200 px-4 py-2 flex items-center gap-3 shrink-0">
-                    <Reply className="w-4 h-4 text-indigo-400 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <span className="text-xs font-semibold text-indigo-600">{replyingTo.authorName}</span>
-                      <p className="text-xs text-slate-500 truncate">{replyingTo.text}</p>
-                    </div>
-                    <button onClick={() => setReplyingTo(null)} className="text-slate-400 hover:text-slate-600">
-                      <X className="w-4 h-4" />
-                    </button>
+                        );
+                      })
+                    )}
+                    <div ref={chatEndRef} />
                   </div>
-                )}
 
-                {/* Input area */}
-                <div className="bg-white rounded-b-xl border border-slate-200 shadow-sm p-4 shrink-0">
-                  <div className="flex gap-3 items-end">
-                    <textarea
-                      value={newComment}
-                      onChange={(e) => setNewComment(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault();
-                          handleCommentSubmit();
-                        }
-                      }}
-                      placeholder="메시지 입력... (Enter 전송 / Shift+Enter 줄바꿈)"
-                      rows={1}
-                      style={{ resize: 'none' }}
-                      className="flex-1 px-4 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm leading-relaxed"
-                    />
-                    <button
-                      onClick={() => handleCommentSubmit()}
-                      disabled={!newComment.trim()}
-                      className="w-10 h-10 flex items-center justify-center bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-sm shrink-0"
-                    >
-                      <Send className="w-4 h-4" />
-                    </button>
+                  {/* Reply preview bar */}
+                  {replyingTo && (
+                    <div className="bg-indigo-50 border-t border-indigo-200 px-4 py-2 flex items-center gap-3 shrink-0">
+                      <Reply className="w-4 h-4 text-indigo-400 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <span className="text-xs font-semibold text-indigo-600">{replyingTo.authorName}</span>
+                        <p className="text-xs text-slate-500 truncate">{replyingTo.text}</p>
+                      </div>
+                      <button onClick={() => setReplyingTo(null)} className="text-slate-400 hover:text-slate-600">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Input area */}
+                  <div className="bg-white border-t border-slate-200 p-4 shrink-0">
+                    <div className="flex gap-3 items-end">
+                      <textarea
+                        value={newComment}
+                        onChange={(e) => setNewComment(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleCommentSubmit();
+                          }
+                        }}
+                        placeholder={`#${currentChannel.name} 에 메시지 입력... (Enter 전송 / Shift+Enter 줄바꿈)`}
+                        rows={1}
+                        style={{ resize: 'none' }}
+                        className="flex-1 px-4 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm leading-relaxed"
+                      />
+                      <button
+                        onClick={() => handleCommentSubmit()}
+                        disabled={!newComment.trim()}
+                        className="w-10 h-10 flex items-center justify-center bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-sm shrink-0"
+                      >
+                        <Send className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>

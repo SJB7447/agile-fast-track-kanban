@@ -83,19 +83,20 @@ export async function showNotification(
   if ('serviceWorker' in navigator) {
     try {
       const reg = await navigator.serviceWorker.ready;
+      const isIOS = /iP(hone|ad|od)/i.test(navigator.userAgent);
       const notifOptions: NotificationOptions = {
         body,
         icon: options?.icon || '/icons/icon-192.png',
         tag: options?.tag || 'default',
         data: { url: options?.url || '/' },
       };
-      // badge/vibrate/renotify: not supported on iOS Safari — guard to avoid errors
-      if ('ExperimentalBadge' in navigator || navigator.userAgent.includes('Chrome') || navigator.userAgent.includes('Firefox')) {
+      // badge/vibrate/renotify are not supported on iOS Safari — omit to avoid silent failures
+      if (!isIOS) {
         (notifOptions as Record<string, unknown>).badge = '/icons/icon-192.png';
         (notifOptions as Record<string, unknown>).renotify = true;
-      }
-      if ('vibrate' in navigator) {
-        (notifOptions as Record<string, unknown>).vibrate = [200, 100, 200];
+        if ('vibrate' in navigator) {
+          (notifOptions as Record<string, unknown>).vibrate = [200, 100, 200];
+        }
       }
       await reg.showNotification(title, notifOptions);
       return;

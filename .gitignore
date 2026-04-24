@@ -10,3 +10,6 @@ coverage/
 
 # Firebase sensitive config
 firebase-applet-config.json
+
+# Local utility scripts (not for production)
+functions/test-notify.js
