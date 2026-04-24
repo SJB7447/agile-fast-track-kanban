@@ -143,19 +143,23 @@ self.addEventListener('fetch', (event) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const targetUrl = event.notification.data?.url || '/';
+  const absoluteUrl = targetUrl.startsWith('http')
+    ? targetUrl
+    : self.location.origin + targetUrl;
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
         if (new URL(client.url).origin === self.location.origin && 'focus' in client) {
+          // navigate() updates the URL so the app reads correct tab params on (re)mount;
+          // postMessage is a secondary mechanism for when navigate() is unsupported (e.g. iOS)
           client.postMessage({ type: 'NAVIGATE_TAB', url: targetUrl });
+          if ('navigate' in client) {
+            return client.navigate(absoluteUrl).then(() => client.focus());
+          }
           return client.focus();
         }
       }
-      // Must be absolute URL for PWA to open correctly on iOS/Android
-      const absoluteUrl = targetUrl.startsWith('http')
-        ? targetUrl
-        : self.location.origin + targetUrl;
       return self.clients.openWindow(absoluteUrl);
     })
   );

@@ -596,7 +596,12 @@ export default function App() {
       addNotifItem(title, body, tab);
     });
 
-    // Listen for SW notification click → navigate to tab
+    return () => { unsubForeground?.(); };
+  }, [user]);
+
+  // Register SW message listener once on mount (independent of auth state)
+  // so NAVIGATE_TAB messages are never lost due to useEffect([user]) cleanup timing
+  useEffect(() => {
     const handleSWMessage = (event: MessageEvent) => {
       if (event.data?.type === 'NAVIGATE_TAB') {
         const url = event.data.url as string;
@@ -605,9 +610,8 @@ export default function App() {
       }
     };
     navigator.serviceWorker?.addEventListener('message', handleSWMessage);
-
-    return () => { unsubForeground?.(); navigator.serviceWorker?.removeEventListener('message', handleSWMessage); };
-  }, [user]);
+    return () => navigator.serviceWorker?.removeEventListener('message', handleSWMessage);
+  }, []);
 
   // Track initial load to skip notifications on first snapshot
   const tRef = useRef<((key: string) => string) | null>(null);
